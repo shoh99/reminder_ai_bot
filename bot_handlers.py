@@ -6,14 +6,9 @@ from datetime import datetime
 from typing import Optional
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.enums import ParseMode
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.client.default import DefaultBotProperties
-from aiogram.utils.keyboard import InlineKeyboardMarkup, InlineKeyboardBuilder, ReplyKeyboardBuilder
-from aiogram.fsm.context import FSMContext
-from apscheduler.executors.asyncio import AsyncIOExecutor
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from aiogram.types import Message
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.orm import sessionmaker
 from ai_services import AIManager
@@ -61,7 +56,7 @@ async def send_reminder(chat_id: int, event_name: str, event_description: str, j
             f"🔔 <b>Reminder:</b> {event_name}\n"
             f"<b>Details:</b> {event_description}\n"
         )
-        await _bot_instance.send_message(chat_id=chat_id, text=reminder)
+        await _bot_instance.send_message(chat_id=chat_id, text=reminder, reply_markup=get_main_buttons())
         with _SessionLocal() as session:
             db.update_event_status(session, job_id, "complete")
 
@@ -141,6 +136,24 @@ def register_handlers(dp: Dispatcher, ai_manager: AIManager, SessionLocal: sessi
         else:
             await message.answer(welcome_text, parse_mode='Markdown', reply_markup=get_main_buttons())
 
+    @dp.message(Command("list"))
+    async def list_reminders_handler(message: Message):
+        with SessionLocal() as session:
+            user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
+            reminders = db.get_active_reminders_by_user(session, user.id)
+
+            if not reminders:
+                await message.answer("📝 You have no active reminders.")
+                return
+
+            response_text = f"📋 **Your Active Reminders ({len(reminders)}):**\n\n"
+            for event in reminders:
+                response_text += f"▪️{event.event_name}\n"
+                response_text += f"  - 🕐 {event.schedule.scheduled_time.strftime('%A, %b %d at %I:%M %p')}\n\n"
+
+            await message.answer(response_text, parse_mode="Markdown", reply_markup=get_main_buttons())
+
+
     @dp.message(F.contact)
     async def get_user_contact(message: Message):
         chat_id = message.chat.id
@@ -176,14 +189,17 @@ def register_handlers(dp: Dispatcher, ai_manager: AIManager, SessionLocal: sessi
                     f"📅 <b>Date:</b> {date}\n"
                     f"⏰ <b>Time:</b> {time}"
                 )
-                await message.answer(response_text_confirmation)
+                await message.answer(response_text_confirmation, reply_markup=get_main_buttons())
                 await process_and_schedule(user_id=user.id, chat_id=message.chat.id, data=json_response,
                                            remind_time=remind_time)
             except (ValueError, TypeError):
                 await message.answer(
-                    "I understood the event but struggled with the date or time format. Could you be more specific?")
+                    "I understood the event but struggled with the date or time format. Could you be more specific?",
+                    reply_markup=get_main_buttons()
+                )
         else:
-            await message.answer("I couldn't quite understand that. Could you try rephrasing your reminder?")
+            await message.answer("I couldn't quite understand that. Could you try rephrasing your reminder?",
+                                 reply_markup=get_main_buttons())
 
     @dp.message(F.voice)
     async def handle_voice_message(message: Message):
@@ -193,7 +209,7 @@ def register_handlers(dp: Dispatcher, ai_manager: AIManager, SessionLocal: sessi
                 await message.answer("Please share your contacts first.", reply_markup=share_phone_button())
                 return
 
-        await message.answer("Heard you! Analyzing your voice message...")
+        await message.answer("Heard you! Analyzing your voice message...", reply_markup=get_main_buttons())
         with tempfile.TemporaryDirectory() as temp_dir:
             file_path = os.path.join(temp_dir, f"{message.voice.file_id}.ogg")
             await bot.download(message.voice, destination=file_path)
@@ -217,28 +233,15 @@ def register_handlers(dp: Dispatcher, ai_manager: AIManager, SessionLocal: sessi
                         f"📅 <b>Date:</b> {date}\n"
                         f"⏰ <b>Time:</b> {time}"
                     )
-                    await message.answer(response_text_confirmation)
+                    await message.answer(response_text_confirmation, reply_markup=get_main_buttons())
                     await process_and_schedule(user.id, message.chat.id, json_response, remind_time)
                 except (ValueError, TypeError):
                     await message.answer(
-                        "I understood the event but struggled with the date or time format from your audio. Could you be more specific?")
+                        "I understood the event but struggled with the date or time format from your audio. Could you be more specific?",
+                        reply_markup=get_main_buttons())
             else:
                 await message.answer(
-                    "I couldn't understand the audio. Could you try speaking more clearly or sending a text message?")
+                    "I couldn't understand the audio. Could you try speaking more clearly or sending a text message?",
+                    reply_markup=get_main_buttons())
 
-        # @dp.message(Command("list"))
-    # async def list_reminders_handler(message: Message):
-    #     with SessionLocal() as session:
-    #         user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
-    #         reminders = db.get_active_reminders_by_user(session, user.id)
-    #
-    #         if not reminders:
-    #             await message.answer("📝 You have no active reminders.")
-    #             return
-    #
-    #         response_text = f"📋 **Your Active Reminders ({len(reminders)}):**\n\n"
-    #         for event in reminders:
-    #             response_text += f"▪️{event.event_name}\n"
-    #             response_text += f"  - 🕐 {event.schedule.scheduled_time.strftime('%A, %b %d at %I:%M %p')}\n\n"
-    #
-    #         await message.answer(response_text, parse_mode="Markdown")
+
