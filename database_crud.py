@@ -120,7 +120,7 @@ def get_active_reminders_by_user(session: Session, user_id: uuid.UUID) -> list[E
     return session.scalars(stmt).all()
 
 
-def get_event_by_job_id(session: Session, job_id: uuid.UUID) -> Event:
+def get_event_by_job_id(session: Session, job_id: str) -> Event:
     """retrieves an event by its associated scheduler job ID"""
     stmt = select(Event).join(Event.schedule).where(Schedule.job_id == job_id)
     return session.scalars(stmt).first()

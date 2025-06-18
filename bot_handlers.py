@@ -7,8 +7,8 @@ from typing import Optional
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram.types import Message, InlineKeyboardButton, CallbackQuery
+from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.orm import sessionmaker
 from ai_services import AIManager
@@ -71,6 +71,85 @@ def register_handlers(dp: Dispatcher, ai_manager: AIManager, SessionLocal: sessi
     _SessionLocal = SessionLocal
     _scheduler_instance = scheduler
 
+
+    async def show_starter_message(message: Message):
+        try:
+            with SessionLocal() as session:
+                logged_user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
+
+            welcome_text = (
+                f"Hello, {message.from_user.first_name}! 🤖 I'm your Remind Me AI assistant.\n\n"
+                "Just send me a text or voice message describing what you want to be reminded about and when!\n\n"
+                "**Commands:**\n"
+                "/start - Show this message\n"
+                "/list - View your active reminders\n"
+                "/cancel - Cancel a reminder"
+            )
+            if not logged_user.phone_number:
+                await message.answer(f"Hello {message.from_user.first_name}! Please share your contacts first.",
+                                     reply_markup=share_phone_button())
+            else:
+                await message.answer(welcome_text, parse_mode='Markdown', reply_markup=get_main_buttons())
+        except Exception as e:
+            print(f"Error at start command: {e}")
+            await message.answer(f"Something went wrong. Please try again")
+    async def show_cancel_reminders_btn(message: Message):
+        try:
+            with SessionLocal() as session:
+                user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
+                reminders = db.get_active_reminders_by_user(session, user.id)
+
+                if not reminders:
+                    await message.answer("📝 You have no active reminders.")
+                    return
+
+                builder = InlineKeyboardBuilder()
+
+                for event in reminders:
+                    reminder_time = event.schedule.scheduled_time
+                    event_name = event.event_name
+                    job_id = event.schedule.job_id
+
+                    button_text = f"{event_name[:30]}... - {reminder_time.strftime('%m/%d %H:%M')}"
+                    if len(event_name) <= 30:
+                        button_text = f"{event_name} - {reminder_time.strftime('%m/%d %H:%M')}"
+
+                    builder.add(InlineKeyboardButton(
+                        text=button_text,
+                        callback_data=f"cancel_{job_id}"
+                    ))
+
+                builder.adjust(1)
+
+                await message.answer(
+                    "🗑️**Select a reminder to cancel:**",
+                    reply_markup=builder.as_markup(),
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            print(f"Error at showing cancellation options: {e}")
+            await message.answer("❌Error retrieving your reminders. Please try again")
+
+    async def show_list_of_reminders(message: Message):
+        try:
+            with SessionLocal() as session:
+                user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
+                reminders = db.get_active_reminders_by_user(session, user.id)
+
+                if not reminders:
+                    await message.answer("📝 You have no active reminders.")
+                    return
+
+                response_text = f"📋 **Your Active Reminders ({len(reminders)}):**\n\n"
+                for event in reminders:
+                    response_text += f"▪️{event.event_name}\n"
+                    response_text += f"  - 🕐 {event.schedule.scheduled_time.strftime('%A, %b %d at %I:%M %p')}\n\n"
+
+                await message.answer(response_text, parse_mode="Markdown", reply_markup=get_main_buttons())
+        except Exception as e:
+            print(f"Error at showing list of reminders: {e}")
+            await message.answer("❌Error retrieving your reminders. Please try again")
+
     async def scheduler_reminder(chat_id: int, user_id: uuid.UUID, data: dict, reminder_time: datetime) -> bool:
         """schedules a job and saves it to the db"""
         try:
@@ -119,40 +198,52 @@ def register_handlers(dp: Dispatcher, ai_manager: AIManager, SessionLocal: sessi
 
     @dp.message(Command("start", "help"))
     async def start_handler(message: Message):
-        with SessionLocal() as session:
-            logged_user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
-
-        welcome_text = (
-            f"Hello, {message.from_user.first_name}! 🤖 I'm your Remind Me AI assistant.\n\n"
-            "Just send me a text or voice message describing what you want to be reminded about and when!\n\n"
-            "**Commands:**\n"
-            "/start - Show this message\n"
-            "/list - View your active reminders\n"
-            "/cancel - Cancel a reminder"
-        )
-        if not logged_user.phone_number:
-            await message.answer(f"Hello {message.from_user.first_name}! Please share your contacts first.",
-                                 reply_markup=share_phone_button())
-        else:
-            await message.answer(welcome_text, parse_mode='Markdown', reply_markup=get_main_buttons())
+        await show_starter_message(message)
 
     @dp.message(Command("list"))
-    async def list_reminders_handler(message: Message):
-        with SessionLocal() as session:
-            user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
-            reminders = db.get_active_reminders_by_user(session, user.id)
+    async def list_reminders_handler_through_command(message: Message):
+        await show_list_of_reminders(message)
 
-            if not reminders:
-                await message.answer("📝 You have no active reminders.")
-                return
+    @dp.message(Command("cancel"))
+    async def cancel_start_handler(message: Message):
+        """Show cancellation reminders"""
+        await show_cancel_reminders_btn(message)
 
-            response_text = f"📋 **Your Active Reminders ({len(reminders)}):**\n\n"
-            for event in reminders:
-                response_text += f"▪️{event.event_name}\n"
-                response_text += f"  - 🕐 {event.schedule.scheduled_time.strftime('%A, %b %d at %I:%M %p')}\n\n"
+    @dp.message(F.text == "Cancel Reminders")
+    async def cancel_start_handler(message: Message):
+        """Show cancellation reminders"""
+        await show_cancel_reminders_btn(message)
 
-            await message.answer(response_text, parse_mode="Markdown", reply_markup=get_main_buttons())
+    @dp.message(F.text == "List Reminders")
+    async def list_reminders_handler_through_text(message: Message):
+        await show_list_of_reminders(message)
 
+    @dp.message(F.text == "Help")
+    async def start_command(message: Message):
+        await show_starter_message(message)
+
+    @dp.callback_query(F.data.startswith("cancel_"))
+    async def cancel_reminder_callback(callback: CallbackQuery):
+        """Handle reminder cancellation"""
+        try:
+            job_id = str(callback.data.split("_")[1])
+            print(job_id)
+            with SessionLocal() as session:
+                event = db.get_event_by_job_id(session, job_id)
+                db.update_event_status(session=session, job_id=job_id, status="cancelled")
+
+                try:
+                    scheduler.remove_job(job_id)
+                except Exception as e:
+                    print(f"job {job_id} not found in scheduler: {e}")
+
+                await callback.message.edit_text(
+                    f"✅ **Reminder Cancelled**\n\n📋 {event.event_name}",
+                    parse_mode='Markdown'
+                )
+        except Exception as e:
+            print(f"Failed to cancel selected reminder: {e}")
+            await callback.message.answer("❌Error cancelling reminder. Please try again")
 
     @dp.message(F.contact)
     async def get_user_contact(message: Message):
@@ -243,5 +334,3 @@ def register_handlers(dp: Dispatcher, ai_manager: AIManager, SessionLocal: sessi
                 await message.answer(
                     "I couldn't understand the audio. Could you try speaking more clearly or sending a text message?",
                     reply_markup=get_main_buttons())
-
-
