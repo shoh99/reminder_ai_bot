@@ -5,8 +5,8 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, F
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.sql import func
 
+from config.settings import Settings
 
-DB_FILENAME = "remindme_ai.sqlite"
 
 Base = declarative_base()
 
@@ -109,14 +109,15 @@ def create_database():
     Initializes the database engine and creates all tables if they don't exist
     :return:
     """
-
-    engine = create_engine(f"sqlite:///{DB_FILENAME}", echo=True)
+    settings = Settings()
+    db_filename = settings.reminder_db_file
+    engine = create_engine(f"sqlite:///{settings.reminder_db_file}", echo=True)
 
     print("Checking if database exists...")
-    if os.path.exists(DB_FILENAME):
-        print(f"Database {DB_FILENAME} already exists. Tables will be created if they don't exists")
+    if os.path.exists(db_filename):
+        print(f"Database {db_filename} already exists. Tables will be created if they don't exists")
     else:
-        print(f"Creating new database: {DB_FILENAME}")
+        print(f"Creating new database: {db_filename}")
 
     Base.metadata.create_all(engine)
 

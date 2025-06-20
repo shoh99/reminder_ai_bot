@@ -1,55 +1,74 @@
-import os
 import asyncio
-import dotenv
-
+import signal
 from aiogram import Bot, Dispatcher
-from aiogram.client.bot import DefaultBotProperties
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-from ai_services import AIManager
-from bot_handlers import register_handlers
-from models import create_database
-
-dotenv.load_dotenv()
-
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-REMINDER_DB_FILE = 'remindme_ai.sqlite'
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+from services.ai_services import AIManager
+from scripts.bot_handlers import register_handlers
+from scripts.dependincies import BotDependencies  # <-- Import from the new file
+from utils.logger import setup_logging
+from scripts.models import create_database
+from config.settings import Settings  # Use the settings instance you created
 
 
 async def main():
-    jobstores = {'default': SQLAlchemyJobStore(url=f'sqlite:///{REMINDER_DB_FILE}')}
-    scheduler = AsyncIOScheduler(jobstores=jobstores, timezone="Asia/Seoul")
+    settings = Settings()
+    logger = setup_logging(settings.log_level)
+    shutdown_event = asyncio.Event()
 
-    scheduler.start()
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}, shutting down...")
+        shutdown_event.set()
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    jobstores = {'default': SQLAlchemyJobStore(url=f'sqlite:///{settings.reminder_db_file}')}
+    scheduler = AsyncIOScheduler(jobstores=jobstores, timezone=settings.timezone)
+    bot = None
 
     try:
         create_database()
-        engine = create_engine(f"sqlite:///{REMINDER_DB_FILE}")
+        engine = create_engine(f"sqlite:///{settings.reminder_db_file}")
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-        bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        bot = Bot(token=settings.telegram_bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         dp = Dispatcher()
+        ai_manager = AIManager(api_key=settings.gemini_api_key)
 
-        ai_manager = AIManager(api_key=GEMINI_API_KEY)
-        register_handlers(dp, ai_manager, SessionLocal, bot, scheduler)
+        # Create the dependencies object
+        deps = BotDependencies(
+            bot=bot,
+            session_factory=SessionLocal,
+            scheduler=scheduler,
+            ai_manager=ai_manager
+        )
 
-        print("Bot is starting...")
-        await dp.start_polling(bot)
+        register_handlers(dp, deps)
+
+        scheduler.start()
+        logger.info("Bot started successfully")
+
+        # Graceful shutdown logic
+        polling_task = asyncio.create_task(dp.start_polling(bot))
+        shutdown_task = asyncio.create_task(shutdown_event.wait())
+        done, pending = await asyncio.wait([polling_task, shutdown_task], return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
 
     except Exception as e:
-        print(f"Bot initialization failed. {e}")
-
+        logger.error(f"Bot initialization failed: {e}", exc_info=True)
     finally:
-        scheduler.shutdown()
-        await bot.session.close()
-        print("Bot shut down gracefully")
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+        if bot:
+            await bot.session.close()
+        logger.info("Bot shut down gracefully")
 
 
 if __name__ == "__main__":
