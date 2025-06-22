@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # Settings with default values
     reminder_db_file: str = '../remindme_ai.sqlite'
-    timezone: str = "Asia/Seoul"
+    timezone: str = "UTC"
     log_level: str = "INFO"
 
     # The modern way to do validation in Pydantic v2

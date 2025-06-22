@@ -4,6 +4,9 @@ import uuid
 import logging
 from datetime import datetime
 from typing import List, Optional
+
+from sqlalchemy import update, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from scripts.models import Users, Event, Schedule, Tag
@@ -14,17 +17,25 @@ logger = logging.getLogger(__name__)
 def get_or_create_user(session: Session, chat_id: int, user_name: str) -> Users:
     """Get existing user or create new one"""
     try:
-        user = session.query(Users).filter(Users.chat_id == chat_id).first()
-        if not user:
-            user = Users(chat_id=chat_id, user_name=user_name)
-            session.add(user)
+        stmt = select(Users).where(Users.chat_id == chat_id)
+        user = session.scalars(stmt).first()
+
+        if user:
+            if user.user_name != user_name:
+                user.user_name = user_name
+                session.commit()
+            return user
+        else:
+            new_user = Users(chat_id=chat_id, user_name=user_name)
+            session.add(new_user)
             session.commit()
-            logger.info(f"Created new user: {user_name} with chat_id: {chat_id}")
-        return user
+
+            return new_user
+
     except Exception as e:
         logger.error(f"Error getting/creating user {chat_id}: {e}")
         session.rollback()
-        raise
+        return None
 
 
 def add_user_phone(session: Session, chat_id: int, phone_number: str) -> bool:
@@ -143,6 +154,28 @@ def update_schedule_run_date(session: Session, job_id: str, next_run_date: datet
         session.rollback()
         return False
 
+
+def update_user_timezone(session: Session, chat_id: int, timezone:str):
+    """Updates the timezone for a specific user"""
+    if not all([chat_id, timezone]):
+        logger.warning("update_user_timezone: chat_id and timezone must be provided")
+        return False
+
+    try:
+        stmt = update(Users).where(Users.chat_id == chat_id).values(timezone=timezone)
+        result = session.execute(stmt)
+        if result.rowcount == 0:
+            logger.warning(f"No user found for chat_id {chat_id} to update timezone")
+            return False
+
+        session.commit()
+        logger.info(f"Update timezone for chat_id {chat_id} to {timezone}")
+        return True
+
+    except SQLAlchemyError as e:
+        session.rollback()
+        logger.error(f"Error updating timezone for chat_id: {chat_id}: {e}")
+        return False
 
 def get_or_create_tags(session: Session, tag_names: List[str]) -> List[Tag]:
     """Get existing tags or create new ones"""

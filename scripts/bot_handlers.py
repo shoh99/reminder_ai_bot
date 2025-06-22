@@ -2,7 +2,7 @@ import tempfile
 import os
 import uuid
 import logging
-
+import pytz
 from scripts import database_crud as db
 
 from datetime import datetime
@@ -17,12 +17,23 @@ from aiogram.enums import ParseMode
 
 from sqlalchemy.orm import sessionmaker, Session
 from scripts.dependincies import BotDependencies
-from utils.utils import convert_to_json
+from scripts.models import Users
+from utils.utils import convert_to_json, create_human_readable_rule
 
 # Setup logger
 logger = logging.getLogger(__name__)
 
 SESSION_FACTORY = None
+
+
+def get_timezone_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="🇺🇿 Uzbekistan (Tashkent)", callback_data="tz_Asia/Tashkent"),
+        InlineKeyboardButton(text="🇰🇷 South Korea (Seoul)", callback_data="tz_Asia/Seoul")
+    )
+    builder.adjust(1)
+    return builder.as_markup()
 
 
 def share_phone_button():
@@ -37,7 +48,7 @@ def get_main_buttons():
     builder.button(text="Cancel Reminders")
     builder.button(text="Help")
     builder.adjust(2, 1)
-    return builder.as_markup(resize_keyboard=True, is_persistent=True)
+    return builder.as_markup(resize_keyboard=True)
 
 
 @asynccontextmanager
@@ -70,19 +81,26 @@ async def send_reminder(bot_token: str, chat_id: int, event_name: str,
         async with get_db_session(SESSION_FACTORY) as session:
             event = db.get_event_by_job_id(session, job_id)
             status = "complete"
+
             if not event:
                 logger.warning(f"Could not find event for job {job_id} after sending reminder.")
                 return
+
             if event.schedule and event.schedule.rrule:
                 try:
-                    now_aware = datetime.now()
-                    rule = rrulestr(event.schedule.rrule, dtstart=event.schedule.scheduled_time)
+                    utc = pytz.utc
+                    user_tz = pytz.timezone(event.user.timezone)
+                    now_aware = datetime.now(user_tz)
+
+                    dtstart_local = event.schedule.scheduled_time.replace(tzinfo=utc).astimezone(user_tz)
+                    rule = rrulestr(event.schedule.rrule, dtstart=dtstart_local)
                     next_run = rule.after(now_aware)
                     print(f"next run: {next_run}")
 
                     if next_run:
+                        next_run_utc = next_run.astimezone(utc)
                         status = "ongoing"
-                        db.update_schedule_run_date(session, job_id, next_run)
+                        db.update_schedule_run_date(session, job_id, next_run_utc)
                     else:
                         status = "complete"
                         logger.info(f"Recurring event {job_id} has finished its cycle.")
@@ -103,7 +121,8 @@ class BotHandlers:
     def __init__(self, deps: BotDependencies):
         self.deps = deps
 
-    async def _scheduler_reminder(self, chat_id: int, user_id: uuid.UUID, data: dict, reminder_time: datetime) -> bool:
+    async def _scheduler_reminder(self, chat_id: int, user_id: uuid.UUID, data: dict,
+                                  reminder_time_time_utc: datetime) -> bool:
         """Schedules a job and saves it to the db. Fixed to use direct function reference."""
         try:
             job_id = str(uuid.uuid4())
@@ -121,13 +140,13 @@ class BotHandlers:
             }
             if rrule_str:
                 logger.info(f"Parsing rrule '{rrule_str}' to create a recurring job.")
-                rule = rrulestr(rrule_str, dtstart=reminder_time)
+                rule = rrulestr(rrule_str, dtstart=reminder_time_time_utc)
                 print(rule)
                 # Logic to decide between 'interval' and 'cron' triggers
                 # If an interval is specified, use the 'interval' trigger.
                 if rule._interval > 1:
                     job_kwargs['trigger'] = 'interval'
-                    interval_kwargs = {'start_date': reminder_time}
+                    interval_kwargs = {'start_date': reminder_time_time_utc}
                     if rule._freq == MINUTELY:
                         interval_kwargs['minutes'] = rule._interval
                     elif rule._freq == HOURLY:
@@ -140,8 +159,8 @@ class BotHandlers:
                 else:
                     # If no interval, use the more specific 'cron' trigger.
                     job_kwargs['trigger'] = 'cron'
-                    cron_args = {'hour': reminder_time.hour, 'minute': reminder_time.minute,
-                                 'start_date': reminder_time}
+                    cron_args = {'hour': reminder_time_time_utc.hour, 'minute': reminder_time_time_utc.minute,
+                                 'start_date': reminder_time_time_utc}
                     if rule._freq == WEEKLY:
                         day_map = {0: 'mon', 1: 'tue', 2: 'wed', 3: 'thu', 4: 'fri', 5: 'sat', 6: 'sun'}
                         cron_args['day_of_week'] = ','.join([day_map[d] for d in rule._byweekday])
@@ -152,7 +171,7 @@ class BotHandlers:
             else:
                 # Fallback for one-time jobs
                 job_kwargs['trigger'] = 'date'
-                job_kwargs['run_date'] = reminder_time
+                job_kwargs['run_date'] = reminder_time_time_utc
 
             print(f"Job kwargs: {job_kwargs}")
             self.deps.scheduler.add_job(
@@ -165,7 +184,7 @@ class BotHandlers:
                 db.create_full_event(
                     session, user_id, data.get("event_name", "Untitled Event"),
                     data.get("event_description", "No details provided."),
-                    reminder_time, job_id, data.get("type"),
+                    reminder_time_time_utc, job_id, data.get("type"),
                     data.get("rrule"), tags
                 )
             logger.info(f"Scheduled job {job_id} and saved to db")
@@ -174,17 +193,26 @@ class BotHandlers:
             logger.error(f"Schedule failed: {e}")
             return False
 
-    async def _process_and_schedule(self, user_id: uuid.UUID, chat_id: int, data: dict, remind_time: datetime):
+    async def _process_and_schedule(self, user: Users, chat_id: int, data: dict, remind_time_naive: datetime):
         status_message = await self.deps.bot.send_message(chat_id=chat_id, text="⏰ Scheduling your request...")
         try:
-            if remind_time < datetime.now():
+            user_tz = pytz.timezone(user.timezone)
+            remind_time_local = user_tz.localize(remind_time_naive)
+            remind_time_utc = remind_time_local.astimezone(pytz.utc)
+            if remind_time_utc < datetime.now(pytz.utc):
                 await status_message.edit_text(text="Oops! That time is in the past. Please try a future time.")
                 return
             print(data)
-            if await self._scheduler_reminder(chat_id, user_id, data, remind_time):
+            if await self._scheduler_reminder(chat_id, user.id, data, remind_time_utc):
+                display_time_str = remind_time_local.strftime('%A, %B, %d at %I:%M %p %Z')
+                if data.get("rrule"):
+                    schedule_text = create_human_readable_rule(data["rrule"],remind_time_local)
+                else:
+                    schedule_text = f"On: {display_time_str}"
+
                 confirmation_message = (
                     f"<b>✅ Reminder Scheduled!</b>\n\nI will remind you to:\n"
-                    f"<b>Event:</b> {data['event_name']}\n<b>On:</b> {remind_time.strftime('%A, %B %d at %I:%M %p')}"
+                    f"<b>Event:</b> {data['event_name']}\n<b>{schedule_text}</b>"
                 )
                 await status_message.edit_text(text=confirmation_message)
             else:
@@ -198,28 +226,62 @@ class BotHandlers:
         async with get_db_session(self.deps.session_factory) as session:
             user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
 
-        welcome_text = (
-            f"Hello, {message.from_user.first_name}! 🤖 I'm your Remind Me AI assistant.\n\n"
-            "Just send me a text or voice message describing what you want to be reminded about and when!"
-        )
-        if not user or not user.phone_number:
-            await message.answer(
-                f"Hello {message.from_user.first_name}! Please share your phone number to get started.",
-                reply_markup=share_phone_button())
-        else:
-            await message.answer(welcome_text, reply_markup=get_main_buttons())
+            welcome_text = (
+                f"Hello, {message.from_user.first_name}! 🤖 I'm your Remind Me AI assistant.\n\n"
+                "Just send me a text or voice message describing what you want to be reminded about and when!"
+            )
+            if not user or not user.phone_number:
+                await message.answer(
+                    f"Hello {message.from_user.first_name}! Please share your phone number to get started.",
+                    reply_markup=share_phone_button())
+            elif user.timezone == "UTC":
+                await message.answer("Please select your timezone to continue:", reply_markup=get_timezone_keyboard())
+            else:
+                await message.answer(welcome_text, reply_markup=get_main_buttons())
+
+    async def select_timezone(self, callback: CallbackQuery):
+        """Handle the user's timezone selection"""
+        try:
+            await self.deps.bot.delete_message(chat_id=callback.message.chat.id, message_id=callback.message.message_id)
+        except Exception as e:
+            logger.error("Error at message deletion")
+
+        try:
+            user_tz = callback.data.split("tz_")[1]
+            async with get_db_session(self.deps.session_factory) as session:
+                if db.update_user_timezone(session, callback.message.chat.id, user_tz):
+                    await callback.message.answer(f"You can now send me a reminder request.",
+                                                  reply_markup=get_main_buttons())
+                else:
+                    await callback.message.reply("Sorry, something went wrong. Please try again.")
+        except Exception as e:
+            logger.error(f"Error setting timezone: {e}")
+            await callback.message.edit_text("Sorry, something went wrong. Please try again.")
+        finally:
+            await callback.answer()
 
     async def list_reminders(self, message: Message):
         async with get_db_session(self.deps.session_factory) as session:
             user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
             reminders = db.get_active_reminders_by_user(session, user.id)
+            user_tz = pytz.timezone(user.timezone)
+
         if not reminders:
             await message.answer("📝 You have no active reminders.", reply_markup=get_main_buttons())
             return
         response_text = f"📋 **Your Active Reminders ({len(reminders)}):**\n\n"
-        for event in reminders:
-            response_text += f"▪️{event.event_name}\n  - 🕐 {event.schedule.scheduled_time.strftime('%A, %b %d at %I:%M %p')}\n\n"
 
+        for event in reminders:
+            response_text += f"▪️{event.event_name}\n"
+            scheduled_time_local = event.schedule.scheduled_time.replace(tzinfo=pytz.utc).astimezone(user_tz)
+            try:
+                if event.schedule.rrule:
+                    rule_text = create_human_readable_rule(event.schedule.rrule, scheduled_time_local)
+                    response_text += f"  - 🕐 Recurring: {rule_text}\n\n"
+                else:
+                    response_text += f"  - 🕐 {scheduled_time_local.strftime('%A, %b %d at %I:%M %p %Z')}\n\n"
+            except Exception as e:
+                print(f"List reminder error: {e}, event rrule: {event.schedule.rrule}")
         try:
             await self.deps.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id - 1)
         except Exception as e:
@@ -241,8 +303,16 @@ class BotHandlers:
             await message.answer("📝 You have no active reminders to cancel.", reply_markup=get_main_buttons())
             return
         builder = InlineKeyboardBuilder()
+        user_tz = pytz.timezone(user.timezone)
+
         for event in reminders:
-            button_text = f"{event.event_name[:30]}.. - {event.schedule.scheduled_time.strftime('%m/%d %H:%M')}"
+            scheduled_time_local = event.schedule.scheduled_time.replace(tzinfo=pytz.utc).astimezone(user_tz)
+            if event.schedule.rrule:
+                schedule_desc = create_human_readable_rule(event.schedule.rrule,  scheduled_time_local)
+            else:
+                schedule_desc = scheduled_time_local.strftime('%b %d at %I:%M %p')
+
+            button_text = f"{event.event_name[:30]}.. - {schedule_desc[:30]}"
             builder.add(InlineKeyboardButton(text=button_text, callback_data=f"cancel_{event.schedule.job_id}"))
         builder.adjust(1)
 
@@ -263,17 +333,20 @@ class BotHandlers:
                 logger.warning(f"Job {job_id} not found in scheduler, might be already completed or removed: {e}")
             db.update_event_status(session, job_id=job_id, status="cancelled")
             try:
-                await self.deps.bot.delete_message(chat_id=callback.message.chat.id, message_id=callback.message.message_id)
+                await self.deps.bot.delete_message(chat_id=callback.message.chat.id,
+                                                   message_id=callback.message.message_id)
             except Exception as e:
                 pass
-            await callback.message.answer(f"✅ **Reminder Cancelled**\n\n📋 {event.event_name}", parse_mode='Markdown', reply_markup=get_main_buttons())
+            await callback.message.answer(f"✅ **Reminder Cancelled**\n\n📋 {event.event_name}", parse_mode='Markdown',
+                                          reply_markup=get_main_buttons())
         await callback.answer()
 
     async def get_user_contact(self, message: Message):
         async with get_db_session(self.deps.session_factory) as session:
             db.add_user_phone(session, message.chat.id, message.contact.phone_number)
-        await message.answer("✅ Your phone number has been saved!", reply_markup=get_main_buttons())
-        await self.start(message)
+        await message.answer("✅ Thanks! Now, please select your timezone to ensure reminders are accurate.",
+                             reply_markup=get_timezone_keyboard())
+        # await self.start(message)
 
     async def handle_text_message(self, message: Message):
         async with get_db_session(self.deps.session_factory) as session:
@@ -283,6 +356,11 @@ class BotHandlers:
                                  reply_markup=share_phone_button())
             return
 
+        if user.timezone == 'UTC':
+            await message.answer("Please select your timezone first to set a reminder. ",
+                                 reply_markup=get_timezone_keyboard())
+            return
+
         status_message = await message.reply("Analyzing your request...", reply_markup=get_main_buttons())
         response_text = self.deps.ai_manager.analyze_text(message.text)
         json_response = convert_to_json(response_text)
@@ -290,7 +368,7 @@ class BotHandlers:
         if json_response and json_response.get("status") == "success":
             try:
                 remind_time = datetime.strptime(f"{json_response['date']} {json_response['time']}", '%Y-%m-%d %H:%M:%S')
-                await self._process_and_schedule(user.id, message.chat.id, json_response, remind_time)
+                await self._process_and_schedule(user, message.chat.id, json_response, remind_time)
             except (ValueError, TypeError, KeyError):
                 await status_message.edit_text(
                     "I understood the event but struggled with the date or time format. Could you be more specific?")
@@ -331,7 +409,7 @@ class BotHandlers:
                         f"⏰ <b>Time:</b> {time}"
                     )
                     await message.answer(response_text_confirmation, reply_markup=get_main_buttons())
-                    await self._process_and_schedule(user.id, message.chat.id, json_response, remind_time)
+                    await self._process_and_schedule(user, message.chat.id, json_response, remind_time)
                 except (ValueError, TypeError, KeyError):
                     await status_message.edit_text(
                         "I understood the event but struggled with the date or time format. Could you be more specific?")
@@ -356,7 +434,7 @@ def register_handlers(dp: Dispatcher, deps: BotDependencies):
     dp.message.register(handlers.cancel_reminders_list, Command("cancel"))
     dp.message.register(handlers.cancel_reminders_list, F.text == "Cancel Reminders")
     dp.message.register(handlers.get_user_contact, F.contact)
-    # The general text handler must be last
     dp.message.register(handlers.handle_text_message, F.text)
     dp.message.register(handlers.handle_voice_message, F.voice)
     dp.callback_query.register(handlers.cancel_reminder_callback, F.data.startswith("cancel_"))
+    dp.callback_query.register(handlers.select_timezone, F.data.startswith("tz_"))
