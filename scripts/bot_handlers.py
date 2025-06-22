@@ -7,7 +7,7 @@ from scripts import database_crud as db
 
 from datetime import datetime
 from contextlib import asynccontextmanager
-
+from dateutil.rrule import rrulestr, MINUTELY, HOURLY, DAILY, WEEKLY, MONTHLY
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardButton, CallbackQuery
@@ -37,7 +37,7 @@ def get_main_buttons():
     builder.button(text="Cancel Reminders")
     builder.button(text="Help")
     builder.adjust(2, 1)
-    return builder.as_markup(resize_keyboard=True)
+    return builder.as_markup(resize_keyboard=True, is_persistent=True)
 
 
 @asynccontextmanager
@@ -68,7 +68,28 @@ async def send_reminder(bot_token: str, chat_id: int, event_name: str,
         await bot.send_message(chat_id=chat_id, text=reminder_text, reply_markup=get_main_buttons())
 
         async with get_db_session(SESSION_FACTORY) as session:
-            db.update_event_status(session, job_id, "complete")
+            event = db.get_event_by_job_id(session, job_id)
+            status = "complete"
+            if not event:
+                logger.warning(f"Could not find event for job {job_id} after sending reminder.")
+                return
+            if event.schedule and event.schedule.rrule:
+                try:
+                    now_aware = datetime.now()
+                    rule = rrulestr(event.schedule.rrule, dtstart=event.schedule.scheduled_time)
+                    next_run = rule.after(now_aware)
+                    print(f"next run: {next_run}")
+
+                    if next_run:
+                        status = "ongoing"
+                        db.update_schedule_run_date(session, job_id, next_run)
+                    else:
+                        status = "complete"
+                        logger.info(f"Recurring event {job_id} has finished its cycle.")
+                except Exception as e:
+                    logger.error(f"Error calculating next run time for job {job_id}: {e}")
+
+            db.update_event_status(session, job_id, status)
 
         logger.info(f"Successfully sent reminder for job {job_id}")
 
@@ -86,19 +107,57 @@ class BotHandlers:
         """Schedules a job and saves it to the db. Fixed to use direct function reference."""
         try:
             job_id = str(uuid.uuid4())
+            rrule_str = data.get("rrule")
 
-            self.deps.scheduler.add_job(
-                send_reminder,
-                'date',
-                run_date=reminder_time,
-                args=[
+            job_kwargs = {
+                'id': job_id,
+                'args': [
                     self.deps.bot.token,
                     chat_id,
                     data.get("event_name", "Untitled Event"),
                     data.get("event_description", "No details provided."),
                     job_id
-                ],
-                id=job_id
+                ]
+            }
+            if rrule_str:
+                logger.info(f"Parsing rrule '{rrule_str}' to create a recurring job.")
+                rule = rrulestr(rrule_str, dtstart=reminder_time)
+                print(rule)
+                # Logic to decide between 'interval' and 'cron' triggers
+                # If an interval is specified, use the 'interval' trigger.
+                if rule._interval > 1:
+                    job_kwargs['trigger'] = 'interval'
+                    interval_kwargs = {'start_date': reminder_time}
+                    if rule._freq == MINUTELY:
+                        interval_kwargs['minutes'] = rule._interval
+                    elif rule._freq == HOURLY:
+                        interval_kwargs['hours'] = rule._interval
+                    elif rule._freq == DAILY:
+                        interval_kwargs['days'] = rule._interval
+                    elif rule._freq == WEEKLY:
+                        interval_kwargs['weeks'] = rule._interval
+                    job_kwargs.update(interval_kwargs)
+                else:
+                    # If no interval, use the more specific 'cron' trigger.
+                    job_kwargs['trigger'] = 'cron'
+                    cron_args = {'hour': reminder_time.hour, 'minute': reminder_time.minute,
+                                 'start_date': reminder_time}
+                    if rule._freq == WEEKLY:
+                        day_map = {0: 'mon', 1: 'tue', 2: 'wed', 3: 'thu', 4: 'fri', 5: 'sat', 6: 'sun'}
+                        cron_args['day_of_week'] = ','.join([day_map[d] for d in rule._byweekday])
+                    elif rule._freq == MONTHLY:
+                        cron_args['day'] = ','.join(map(str, rule._bymonthday))
+                    # For DAILY, just hour/minute is needed, which is already set.
+                    job_kwargs.update(cron_args)
+            else:
+                # Fallback for one-time jobs
+                job_kwargs['trigger'] = 'date'
+                job_kwargs['run_date'] = reminder_time
+
+            print(f"Job kwargs: {job_kwargs}")
+            self.deps.scheduler.add_job(
+                send_reminder,
+                **job_kwargs
             )
 
             async with get_db_session(self.deps.session_factory) as session:
@@ -106,7 +165,7 @@ class BotHandlers:
                 db.create_full_event(
                     session, user_id, data.get("event_name", "Untitled Event"),
                     data.get("event_description", "No details provided."),
-                    reminder_time, job_id, data.get("type", "one-time"),
+                    reminder_time, job_id, data.get("type"),
                     data.get("rrule"), tags
                 )
             logger.info(f"Scheduled job {job_id} and saved to db")
@@ -121,7 +180,7 @@ class BotHandlers:
             if remind_time < datetime.now():
                 await status_message.edit_text(text="Oops! That time is in the past. Please try a future time.")
                 return
-
+            print(data)
             if await self._scheduler_reminder(chat_id, user_id, data, remind_time):
                 confirmation_message = (
                     f"<b>✅ Reminder Scheduled!</b>\n\nI will remind you to:\n"
@@ -160,12 +219,24 @@ class BotHandlers:
         response_text = f"📋 **Your Active Reminders ({len(reminders)}):**\n\n"
         for event in reminders:
             response_text += f"▪️{event.event_name}\n  - 🕐 {event.schedule.scheduled_time.strftime('%A, %b %d at %I:%M %p')}\n\n"
+
+        try:
+            await self.deps.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id - 1)
+        except Exception as e:
+            print(f"Error at deleting message. {e}")
+
         await message.answer(response_text, parse_mode="Markdown", reply_markup=get_main_buttons())
 
     async def cancel_reminders_list(self, message: Message):
         async with get_db_session(self.deps.session_factory) as session:
             user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
             reminders = db.get_active_reminders_by_user(session, user.id)
+
+            try:
+                await self.deps.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id - 1)
+            except Exception as e:
+                print(f"Error at deleting message. {e}")
+
         if not reminders:
             await message.answer("📝 You have no active reminders to cancel.", reply_markup=get_main_buttons())
             return
@@ -174,6 +245,8 @@ class BotHandlers:
             button_text = f"{event.event_name[:30]}.. - {event.schedule.scheduled_time.strftime('%m/%d %H:%M')}"
             builder.add(InlineKeyboardButton(text=button_text, callback_data=f"cancel_{event.schedule.job_id}"))
         builder.adjust(1)
+
+        await message.answer("Here are the reminders", reply_markup=get_main_buttons())
         await message.answer("🗑️ **Select a reminder to cancel:**", reply_markup=builder.as_markup(),
                              parse_mode="Markdown")
 
@@ -189,7 +262,11 @@ class BotHandlers:
             except Exception as e:
                 logger.warning(f"Job {job_id} not found in scheduler, might be already completed or removed: {e}")
             db.update_event_status(session, job_id=job_id, status="cancelled")
-            await callback.message.edit_text(f"✅ **Reminder Cancelled**\n\n📋 {event.event_name}", parse_mode='Markdown')
+            try:
+                await self.deps.bot.delete_message(chat_id=callback.message.chat.id, message_id=callback.message.message_id)
+            except Exception as e:
+                pass
+            await callback.message.answer(f"✅ **Reminder Cancelled**\n\n📋 {event.event_name}", parse_mode='Markdown', reply_markup=get_main_buttons())
         await callback.answer()
 
     async def get_user_contact(self, message: Message):
@@ -206,10 +283,10 @@ class BotHandlers:
                                  reply_markup=share_phone_button())
             return
 
-        status_message = await message.reply("Analyzing your request...")
+        status_message = await message.reply("Analyzing your request...", reply_markup=get_main_buttons())
         response_text = self.deps.ai_manager.analyze_text(message.text)
         json_response = convert_to_json(response_text)
-
+        print(json_response)
         if json_response and json_response.get("status") == "success":
             try:
                 remind_time = datetime.strptime(f"{json_response['date']} {json_response['time']}", '%Y-%m-%d %H:%M:%S')

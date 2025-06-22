@@ -88,6 +88,15 @@ def get_event_by_job_id(session: Session, job_id: str) -> Optional[Event]:
         session.rollback()
         return None
 
+def get_schedule_by_job_id(session:Session, job_id: str) -> Schedule:
+    try:
+        schedule = session.query(Schedule).filter(Schedule.job_id == job_id).first()
+        return schedule
+    except Exception as e:
+        logger.error(f"Error getting schedule by job_id {job_id}: {e}")
+        session.rollback()
+        return None
+
 
 def update_event_status(session: Session, job_id: str, status: str) -> bool:
     """Update event status by job_id"""
@@ -114,6 +123,23 @@ def update_event_status(session: Session, job_id: str, status: str) -> bool:
 
     except Exception as e:
         logger.error(f"Error updating status for job {job_id}: {e}")
+        session.rollback()
+        return False
+
+def update_schedule_run_date(session: Session, job_id: str, next_run_date: datetime) -> bool:
+    """update schedule next run time"""
+    try:
+        schedule = session.query(Schedule).filter(Schedule.job_id == job_id).first()
+        if schedule:
+            schedule.scheduled_time = next_run_date
+            session.commit()
+            logger.info(f"Update scheduled next run time for job: {job_id} to {next_run_date}")
+            return True
+
+        logger.warning(f"No schedule found for job_id {job_id}")
+        return False
+    except Exception as e:
+        logger.error(f"Error updating next run time for job {job_id}: {e}")
         session.rollback()
         return False
 
