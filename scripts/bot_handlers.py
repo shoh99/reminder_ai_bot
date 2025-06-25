@@ -20,8 +20,6 @@ from scripts.dependincies import BotDependencies
 from scripts.models import Users
 from utils.utils import convert_to_json, create_human_readable_rule
 
-# Setup logger
-logger = logging.getLogger(__name__)
 
 SESSION_FACTORY = None
 
@@ -57,7 +55,7 @@ async def get_db_session(session_factory: sessionmaker) -> Session:
     try:
         yield session
     except Exception as e:
-        logger.error(f"Database session error: {e}")
+        logging.error(f"Database session error: {e}")
         session.rollback()
         raise
     finally:
@@ -69,7 +67,7 @@ async def send_reminder(bot_token: str, chat_id: int, event_name: str,
     """
     This function is called by the scheduler. It creates a temporary bot instance to send the message.
     """
-    logger.info(f"Executing job {job_id} to send reminder to chat {chat_id}")
+    logging.info(f"Executing job {job_id} to send reminder to chat {chat_id}")
     bot = Bot(token=bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     try:
         reminder_text = (
@@ -83,7 +81,7 @@ async def send_reminder(bot_token: str, chat_id: int, event_name: str,
             status = "complete"
 
             if not event:
-                logger.warning(f"Could not find event for job {job_id} after sending reminder.")
+                logging.warning(f"Could not find event for job {job_id} after sending reminder.")
                 return
 
             if event.schedule and event.schedule.rrule:
@@ -95,7 +93,6 @@ async def send_reminder(bot_token: str, chat_id: int, event_name: str,
                     dtstart_local = event.schedule.scheduled_time.replace(tzinfo=utc).astimezone(user_tz)
                     rule = rrulestr(event.schedule.rrule, dtstart=dtstart_local)
                     next_run = rule.after(now_aware)
-                    print(f"next run: {next_run}")
 
                     if next_run:
                         next_run_utc = next_run.astimezone(utc)
@@ -103,16 +100,16 @@ async def send_reminder(bot_token: str, chat_id: int, event_name: str,
                         db.update_schedule_run_date(session, job_id, next_run_utc)
                     else:
                         status = "complete"
-                        logger.info(f"Recurring event {job_id} has finished its cycle.")
+                        logging.info(f"Recurring event {job_id} has finished its cycle.")
                 except Exception as e:
-                    logger.error(f"Error calculating next run time for job {job_id}: {e}")
+                    logging.error(f"Error calculating next run time for job {job_id}: {e}")
 
             db.update_event_status(session, job_id, status)
 
-        logger.info(f"Successfully sent reminder for job {job_id}")
+        logging.info(f"Successfully sent reminder for job {job_id}")
 
     except Exception as e:
-        logger.error(f"Failed to execute reminder job {job_id}: {e}")
+        logging.error(f"Failed to execute reminder job {job_id}: {e}")
     finally:
         await bot.session.close()
 
@@ -139,9 +136,8 @@ class BotHandlers:
                 ]
             }
             if rrule_str:
-                logger.info(f"Parsing rrule '{rrule_str}' to create a recurring job.")
+                logging.info(f"Parsing rrule '{rrule_str}' to create a recurring job.")
                 rule = rrulestr(rrule_str, dtstart=reminder_time_time_utc)
-                print(rule)
                 # Logic to decide between 'interval' and 'cron' triggers
                 # If an interval is specified, use the 'interval' trigger.
                 if rule._interval > 1:
@@ -173,7 +169,6 @@ class BotHandlers:
                 job_kwargs['trigger'] = 'date'
                 job_kwargs['run_date'] = reminder_time_time_utc
 
-            print(f"Job kwargs: {job_kwargs}")
             self.deps.scheduler.add_job(
                 send_reminder,
                 **job_kwargs
@@ -187,10 +182,10 @@ class BotHandlers:
                     reminder_time_time_utc, job_id, data.get("type"),
                     data.get("rrule"), tags
                 )
-            logger.info(f"Scheduled job {job_id} and saved to db")
+            logging.info(f"Scheduled job {job_id} and saved to db")
             return True
         except Exception as e:
-            logger.error(f"Schedule failed: {e}")
+            logging.error(f"Schedule failed: {e}")
             return False
 
     async def _process_and_schedule(self, user: Users, chat_id: int, data: dict, remind_time_naive: datetime):
@@ -202,7 +197,7 @@ class BotHandlers:
             if remind_time_utc < datetime.now(pytz.utc):
                 await status_message.edit_text(text="Oops! That time is in the past. Please try a future time.")
                 return
-            print(data)
+
             if await self._scheduler_reminder(chat_id, user.id, data, remind_time_utc):
                 display_time_str = remind_time_local.strftime('%A, %B, %d at %I:%M %p %Z')
                 if data.get("rrule"):
@@ -218,7 +213,7 @@ class BotHandlers:
             else:
                 await status_message.edit_text(text="Sorry, I ran into an error trying to schedule that.")
         except Exception as e:
-            logger.error(f"Error at processing and scheduling job: {e}")
+            logging.error(f"Error at processing and scheduling job: {e}")
             await status_message.edit_text(text="An unexpected error occurred during scheduling.")
 
     # --- Message and Callback Handlers as class methods ---
@@ -244,7 +239,7 @@ class BotHandlers:
         try:
             await self.deps.bot.delete_message(chat_id=callback.message.chat.id, message_id=callback.message.message_id)
         except Exception as e:
-            logger.error("Error at message deletion")
+            logging.error("Error at message deletion")
 
         try:
             user_tz = callback.data.split("tz_")[1]
@@ -255,7 +250,7 @@ class BotHandlers:
                 else:
                     await callback.message.reply("Sorry, something went wrong. Please try again.")
         except Exception as e:
-            logger.error(f"Error setting timezone: {e}")
+            logging.error(f"Error setting timezone: {e}")
             await callback.message.edit_text("Sorry, something went wrong. Please try again.")
         finally:
             await callback.answer()
@@ -281,11 +276,11 @@ class BotHandlers:
                 else:
                     response_text += f"  - 🕐 {scheduled_time_local.strftime('%A, %b %d at %I:%M %p %Z')}\n\n"
             except Exception as e:
-                print(f"List reminder error: {e}, event rrule: {event.schedule.rrule}")
+                logging.error(f"List reminder error: {e}, event rrule: {event.schedule.rrule}")
         try:
             await self.deps.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id - 1)
         except Exception as e:
-            print(f"Error at deleting message. {e}")
+            logging.error(f"Error at deleting message. {e}")
 
         await message.answer(response_text, parse_mode="Markdown", reply_markup=get_main_buttons())
 
@@ -297,7 +292,7 @@ class BotHandlers:
             try:
                 await self.deps.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id - 1)
             except Exception as e:
-                print(f"Error at deleting message. {e}")
+                logging.error(f"Error at deleting message. {e}")
 
         if not reminders:
             await message.answer("📝 You have no active reminders to cancel.", reply_markup=get_main_buttons())
@@ -330,7 +325,7 @@ class BotHandlers:
             try:
                 self.deps.scheduler.remove_job(job_id)
             except Exception as e:
-                logger.warning(f"Job {job_id} not found in scheduler, might be already completed or removed: {e}")
+                logging.warning(f"Job {job_id} not found in scheduler, might be already completed or removed: {e}")
             db.update_event_status(session, job_id=job_id, status="cancelled")
             try:
                 await self.deps.bot.delete_message(chat_id=callback.message.chat.id,
@@ -364,7 +359,9 @@ class BotHandlers:
         status_message = await message.reply("Analyzing your request...", reply_markup=get_main_buttons())
         response_text = self.deps.ai_manager.analyze_text(message.text)
         json_response = convert_to_json(response_text)
-        print(json_response)
+
+        logging.info(f"AI response for {user.user_name}`s request: {json_response}")
+
         if json_response and json_response.get("status") == "success":
             try:
                 remind_time = datetime.strptime(f"{json_response['date']} {json_response['time']}", '%Y-%m-%d %H:%M:%S')

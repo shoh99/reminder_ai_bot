@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session, joinedload
 
 from scripts.models import Users, Event, Schedule, Tag
 
-logger = logging.getLogger(__name__)
 
 
 def get_or_create_user(session: Session, chat_id: int, user_name: str) -> Users:
@@ -33,7 +32,7 @@ def get_or_create_user(session: Session, chat_id: int, user_name: str) -> Users:
             return new_user
 
     except Exception as e:
-        logger.error(f"Error getting/creating user {chat_id}: {e}")
+        logging.error(f"Error getting/creating user {chat_id}: {e}")
         session.rollback()
         return None
 
@@ -45,11 +44,11 @@ def add_user_phone(session: Session, chat_id: int, phone_number: str) -> bool:
         if user:
             user.phone_number = phone_number
             session.commit()
-            logger.info(f"Added phone number for user {chat_id}")
+            logging.info(f"Added phone number for user {chat_id}")
             return True
         return False
     except Exception as e:
-        logger.error(f"Error adding phone for user {chat_id}: {e}")
+        logging.error(f"Error adding phone for user {chat_id}: {e}")
         session.rollback()
         return False
 
@@ -72,11 +71,11 @@ def get_active_reminders_by_user(session: Session, user_id: uuid.UUID) -> List[E
             Schedule.scheduled_time.asc()  # Use singular Schedule model
         ).all()
 
-        logger.info(f"Found {len(reminders)} active reminders for user {user_id}")
+        logging.info(f"Found {len(reminders)} active reminders for user {user_id}")
         return reminders
 
     except Exception as e:
-        logger.error(f"Failed to get active reminders for user {user_id}: {e}")
+        logging.error(f"Failed to get active reminders for user {user_id}: {e}")
         session.rollback()
         return []
 
@@ -95,7 +94,7 @@ def get_event_by_job_id(session: Session, job_id: str) -> Optional[Event]:
 
         return event
     except Exception as e:
-        logger.error(f"Error getting event by job_id {job_id}: {e}")
+        logging.error(f"Error getting event by job_id {job_id}: {e}")
         session.rollback()
         return None
 
@@ -104,7 +103,7 @@ def get_schedule_by_job_id(session:Session, job_id: str) -> Schedule:
         schedule = session.query(Schedule).filter(Schedule.job_id == job_id).first()
         return schedule
     except Exception as e:
-        logger.error(f"Error getting schedule by job_id {job_id}: {e}")
+        logging.error(f"Error getting schedule by job_id {job_id}: {e}")
         session.rollback()
         return None
 
@@ -126,14 +125,14 @@ def update_event_status(session: Session, job_id: str, status: str) -> bool:
                     event.status = "cancelled"
 
             session.commit()
-            logger.info(f"Updated status for job {job_id} to {status}")
+            logging.info(f"Updated status for job {job_id} to {status}")
             return True
 
-        logger.warning(f"No schedule found for job_id {job_id}")
+        logging.warning(f"No schedule found for job_id {job_id}")
         return False
 
     except Exception as e:
-        logger.error(f"Error updating status for job {job_id}: {e}")
+        logging.error(f"Error updating status for job {job_id}: {e}")
         session.rollback()
         return False
 
@@ -144,13 +143,13 @@ def update_schedule_run_date(session: Session, job_id: str, next_run_date: datet
         if schedule:
             schedule.scheduled_time = next_run_date
             session.commit()
-            logger.info(f"Update scheduled next run time for job: {job_id} to {next_run_date}")
+            logging.info(f"Update scheduled next run time for job: {job_id} to {next_run_date}")
             return True
 
-        logger.warning(f"No schedule found for job_id {job_id}")
+        logging.warning(f"No schedule found for job_id {job_id}")
         return False
     except Exception as e:
-        logger.error(f"Error updating next run time for job {job_id}: {e}")
+        logging.error(f"Error updating next run time for job {job_id}: {e}")
         session.rollback()
         return False
 
@@ -158,23 +157,23 @@ def update_schedule_run_date(session: Session, job_id: str, next_run_date: datet
 def update_user_timezone(session: Session, chat_id: int, timezone:str):
     """Updates the timezone for a specific user"""
     if not all([chat_id, timezone]):
-        logger.warning("update_user_timezone: chat_id and timezone must be provided")
+        logging.warning("update_user_timezone: chat_id and timezone must be provided")
         return False
 
     try:
         stmt = update(Users).where(Users.chat_id == chat_id).values(timezone=timezone)
         result = session.execute(stmt)
         if result.rowcount == 0:
-            logger.warning(f"No user found for chat_id {chat_id} to update timezone")
+            logging.warning(f"No user found for chat_id {chat_id} to update timezone")
             return False
 
         session.commit()
-        logger.info(f"Update timezone for chat_id {chat_id} to {timezone}")
+        logging.info(f"Update timezone for chat_id {chat_id} to {timezone}")
         return True
 
     except SQLAlchemyError as e:
         session.rollback()
-        logger.error(f"Error updating timezone for chat_id: {chat_id}: {e}")
+        logging.error(f"Error updating timezone for chat_id: {chat_id}: {e}")
         return False
 
 def get_or_create_tags(session: Session, tag_names: List[str]) -> List[Tag]:
@@ -195,7 +194,7 @@ def get_or_create_tags(session: Session, tag_names: List[str]) -> List[Tag]:
         return tags
 
     except Exception as e:
-        logger.error(f"Error getting/creating tags: {e}")
+        logging.error(f"Error getting/creating tags: {e}")
         session.rollback()
         return []
 
@@ -233,11 +232,11 @@ def create_full_event(session: Session, user_id: uuid.UUID, event_name: str,
         session.add(event)
         session.commit()
 
-        logger.info(f"Created event {event_name} with job_id {job_id}")
+        logging.info(f"Created event {event_name} with job_id {job_id}")
         return event
 
     except Exception as e:
-        logger.error(f"Error creating event {event_name}: {e}")
+        logging.error(f"Error creating event {event_name}: {e}")
         session.rollback()
         return None
 
@@ -249,11 +248,11 @@ def delete_event(session: Session, event_id: uuid.UUID) -> bool:
         if event:
             session.delete(event)  # Cascade will delete the schedule
             session.commit()
-            logger.info(f"Deleted event {event_id}")
+            logging.info(f"Deleted event {event_id}")
             return True
         return False
 
     except Exception as e:
-        logger.error(f"Error deleting event {event_id}: {e}")
+        logging.error(f"Error deleting event {event_id}: {e}")
         session.rollback()
         return False

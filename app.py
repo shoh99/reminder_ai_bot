@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import signal
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -17,8 +18,11 @@ from config.settings import Settings  # Use the settings instance you created
 
 
 async def main():
+    setup_logging()
+    logger = logging.getLogger(__name__)
+
     settings = Settings()
-    logger = setup_logging(settings.log_level)
+
     shutdown_event = asyncio.Event()
 
     def signal_handler(signum, frame):
