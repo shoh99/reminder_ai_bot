@@ -18,8 +18,7 @@ from aiogram.enums import ParseMode
 from sqlalchemy.orm import sessionmaker, Session
 from scripts.dependincies import BotDependencies
 from scripts.models import Users
-from utils.utils import convert_to_json, create_human_readable_rule
-
+from utils.utils import convert_to_json, create_human_readable_rule, safe_timezone_convert
 
 SESSION_FACTORY = None
 
@@ -88,16 +87,32 @@ async def send_reminder(bot_token: str, chat_id: int, event_name: str,
                 try:
                     utc = pytz.utc
                     user_tz = pytz.timezone(event.user.timezone)
-                    now_aware = datetime.now(user_tz)
+                    # get current time in utc
+                    now_utc = datetime.now(utc)
 
-                    dtstart_local = event.schedule.scheduled_time.replace(tzinfo=utc).astimezone(user_tz)
-                    rule = rrulestr(event.schedule.rrule, dtstart=dtstart_local)
-                    next_run = rule.after(now_aware)
+                    # get original scheduled time in user's timezone
+                    if event.schedule.scheduled_time.tzinfo is None:
+                        scheduled_time_utc = utc.localize(event.schedule.scheduled_time)
+                    else:
+                        scheduled_time_utc = event.schedule.scheduled_time.astimezone(utc)
 
-                    if next_run:
-                        next_run_utc = next_run.astimezone(utc)
+                    # convert to user timezone for rrule calculation
+                    scheduled_time_local = scheduled_time_utc.astimezone(user_tz)
+                    # parse rrule with local time as dtstart
+                    rule = rrulestr(event.schedule.rrule, dtstart=scheduled_time_local)
+
+                    # find next occurrence after current time in user timezone
+                    now_local = now_utc.astimezone(user_tz)
+                    next_run_local = rule.after(now_local)
+
+                    # next_run = rule.after(now_aware)
+
+                    if next_run_local:
+                        next_run_utc = next_run_local.astimezone(utc)
                         status = "ongoing"
                         db.update_schedule_run_date(session, job_id, next_run_utc)
+                        logging.info(
+                            f"Next run for job {job_id} scheduled at {next_run_utc} UTC ({next_run_utc} {user_tz.zone})")
                     else:
                         status = "complete"
                         logging.info(f"Recurring event {job_id} has finished its cycle.")
@@ -118,12 +133,18 @@ class BotHandlers:
     def __init__(self, deps: BotDependencies):
         self.deps = deps
 
-    async def _scheduler_reminder(self, chat_id: int, user_id: uuid.UUID, data: dict,
-                                  reminder_time_time_utc: datetime) -> bool:
+    async def _scheduler_reminder(self, chat_id: int, user_id: uuid.UUID, user_timezone: pytz, data: dict,
+                                  reminder_time_utc: datetime) -> bool:
         """Schedules a job and saves it to the db. Fixed to use direct function reference."""
         try:
             job_id = str(uuid.uuid4())
             rrule_str = data.get("rrule")
+
+            # ensure reminder_time_utc is timezone-aware
+            if reminder_time_utc.tzinfo is None:
+                reminder_time_utc = pytz.utc.localize(reminder_time_utc)
+            elif reminder_time_utc.tzinfo != pytz.utc:
+                reminder_time_utc = reminder_time_utc.astimezone(pytz.utc)
 
             job_kwargs = {
                 'id': job_id,
@@ -137,12 +158,16 @@ class BotHandlers:
             }
             if rrule_str:
                 logging.info(f"Parsing rrule '{rrule_str}' to create a recurring job.")
-                rule = rrulestr(rrule_str, dtstart=reminder_time_time_utc)
+
+                # convert to user timezone for rrule parsing
+                reminder_time_local = reminder_time_utc.astimezone(user_timezone)
+                rule = rrulestr(rrule_str, dtstart=reminder_time_local)
+
                 # Logic to decide between 'interval' and 'cron' triggers
                 # If an interval is specified, use the 'interval' trigger.
                 if rule._interval > 1:
                     job_kwargs['trigger'] = 'interval'
-                    interval_kwargs = {'start_date': reminder_time_time_utc}
+                    interval_kwargs = {'start_date': reminder_time_utc}  # APScheduler expects UTC
                     if rule._freq == MINUTELY:
                         interval_kwargs['minutes'] = rule._interval
                     elif rule._freq == HOURLY:
@@ -153,10 +178,15 @@ class BotHandlers:
                         interval_kwargs['weeks'] = rule._interval
                     job_kwargs.update(interval_kwargs)
                 else:
-                    # If no interval, use the more specific 'cron' trigger.
+                    # If no interval, use the more specific 'cron' trigger with timezone specification.
                     job_kwargs['trigger'] = 'cron'
-                    cron_args = {'hour': reminder_time_time_utc.hour, 'minute': reminder_time_time_utc.minute,
-                                 'start_date': reminder_time_time_utc}
+                    cron_args = {
+                        'hour': reminder_time_local.hour,  # user local time for cron
+                        'minute': reminder_time_local.minute,
+                        'start_date': reminder_time_utc,  # but start date in utc
+                        'timezone': user_timezone  # specify timezone for cron
+                    }
+
                     if rule._freq == WEEKLY:
                         day_map = {0: 'mon', 1: 'tue', 2: 'wed', 3: 'thu', 4: 'fri', 5: 'sat', 6: 'sun'}
                         cron_args['day_of_week'] = ','.join([day_map[d] for d in rule._byweekday])
@@ -167,7 +197,7 @@ class BotHandlers:
             else:
                 # Fallback for one-time jobs
                 job_kwargs['trigger'] = 'date'
-                job_kwargs['run_date'] = reminder_time_time_utc
+                job_kwargs['run_date'] = reminder_time_utc  # APScheduler expects UTC
 
             self.deps.scheduler.add_job(
                 send_reminder,
@@ -179,7 +209,7 @@ class BotHandlers:
                 db.create_full_event(
                     session, user_id, data.get("event_name", "Untitled Event"),
                     data.get("event_description", "No details provided."),
-                    reminder_time_time_utc, job_id, data.get("type"),
+                    reminder_time_utc, job_id, data.get("type"),
                     data.get("rrule"), tags
                 )
             logging.info(f"Scheduled job {job_id} and saved to db")
@@ -192,16 +222,20 @@ class BotHandlers:
         status_message = await self.deps.bot.send_message(chat_id=chat_id, text="⏰ Scheduling your request...")
         try:
             user_tz = pytz.timezone(user.timezone)
+            # localize the naive datetime to user's timezone
             remind_time_local = user_tz.localize(remind_time_naive)
+            # convert to utc for internal processing
             remind_time_utc = remind_time_local.astimezone(pytz.utc)
-            if remind_time_utc < datetime.now(pytz.utc):
+            # compare timezone-aware datetimes
+            now_utc = datetime.now(pytz.utc)
+            if remind_time_utc <= now_utc:
                 await status_message.edit_text(text="Oops! That time is in the past. Please try a future time.")
                 return
 
-            if await self._scheduler_reminder(chat_id, user.id, data, remind_time_utc):
+            if await self._scheduler_reminder(chat_id, user.id, user_tz, data, remind_time_utc):
                 display_time_str = remind_time_local.strftime('%A, %B, %d at %I:%M %p %Z')
                 if data.get("rrule"):
-                    schedule_text = create_human_readable_rule(data["rrule"],remind_time_local)
+                    schedule_text = create_human_readable_rule(data["rrule"], remind_time_local)
                 else:
                     schedule_text = f"On: {display_time_str}"
 
@@ -268,7 +302,11 @@ class BotHandlers:
 
         for event in reminders:
             response_text += f"▪️{event.event_name}\n"
-            scheduled_time_local = event.schedule.scheduled_time.replace(tzinfo=pytz.utc).astimezone(user_tz)
+            scheduled_time_local = safe_timezone_convert(
+                event.schedule.scheduled_time,
+                user_tz,
+                pytz.utc
+            )
             try:
                 if event.schedule.rrule:
                     rule_text = create_human_readable_rule(event.schedule.rrule, scheduled_time_local)
@@ -303,7 +341,7 @@ class BotHandlers:
         for event in reminders:
             scheduled_time_local = event.schedule.scheduled_time.replace(tzinfo=pytz.utc).astimezone(user_tz)
             if event.schedule.rrule:
-                schedule_desc = create_human_readable_rule(event.schedule.rrule,  scheduled_time_local)
+                schedule_desc = create_human_readable_rule(event.schedule.rrule, scheduled_time_local)
             else:
                 schedule_desc = scheduled_time_local.strftime('%b %d at %I:%M %p')
 
@@ -357,7 +395,7 @@ class BotHandlers:
             return
 
         status_message = await message.reply("Analyzing your request...", reply_markup=get_main_buttons())
-        response_text = self.deps.ai_manager.analyze_text(message.text)
+        response_text = self.deps.ai_manager.analyze_text(message.text, user.timezone)
         json_response = convert_to_json(response_text)
 
         logging.info(f"AI response for {user.user_name}`s request: {json_response}")
@@ -386,7 +424,7 @@ class BotHandlers:
             file_path = os.path.join(temp_dir, f"{message.voice.file_id}.ogg")
             await self.deps.bot.download(message.voice, destination=file_path)
 
-            response_text = self.deps.ai_manager.analyze_audio(file_path)
+            response_text = self.deps.ai_manager.analyze_audio(file_path, user.timezone)
             json_response = convert_to_json(response_text)
 
             if json_response and json_response.get("status") == "success":

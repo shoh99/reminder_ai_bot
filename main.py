@@ -21,7 +21,6 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from typing import Optional
 from google import genai
-from google.cloud import speech
 from google.genai import types
 
 dotenv.load_dotenv()
@@ -96,7 +95,7 @@ Respond strictly with a JSON object in the format:
   "time": "HH:MM:SS",
   "status": "success" or "clarification_needed"
 }}
-User's text: "{text}"
+Users's text: "{text}"
 """
     try:
         response = ai_model.models.generate_content(model="gemini-2.0-flash", contents=prompt)

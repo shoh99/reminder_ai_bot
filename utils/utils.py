@@ -4,6 +4,7 @@ from datetime import datetime
 
 from typing import Optional
 
+import pytz
 from dateutil.rrule import rrulestr, HOURLY, DAILY, WEEKLY, MONTHLY
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,8 @@ def create_human_readable_rule(rrule_str: str, start_time_local: datetime) -> st
         rule_text = f"Every {interval if interval > 1 else ''} {freq_text}".replace(" ", " ").capitalize()
 
         if rule._freq == WEEKLY and rule._byweekday:
-            day_map = {0: 'Monday', 1: 'Tuesday', 2: 'Wednesday', 3: 'Thursday', 4: 'Friday', 5: 'Saturday', 6:'Sunday'}
+            day_map = {0: 'Monday', 1: 'Tuesday', 2: 'Wednesday', 3: 'Thursday', 4: 'Friday', 5: 'Saturday',
+                       6: 'Sunday'}
             days = ', '.join([day_map[d] for d in rule._byweekday])
             rule_text = f"Every {days}"
 
@@ -44,3 +46,19 @@ def create_human_readable_rule(rrule_str: str, start_time_local: datetime) -> st
     except Exception as e:
         print(f"Erroring while creating human readable rule: {e}")
         return f"Recurring schedule starting on {start_time_local.strftime('%A, %B %d')}"
+
+
+def safe_timezone_convert(dt: datetime, target_tz: pytz.BaseTzInfo, source_ts: pytz.BaseTzInfo = pytz.utc) -> datetime:
+    try:
+        if dt.tzinfo is None:
+            dt_aware = source_ts.localize(dt)
+        else:
+            dt_aware = dt.astimezone(source_ts) if dt.tzinfo != source_ts else dt
+
+        return dt_aware.astimezone(target_tz)
+
+    except Exception as e:
+        logging.error(f"Timezone conversion error: {e}")
+        if dt.tzinfo is None:
+            return pytz.utc.localize(dt)
+        return dt.astimezone(pytz.utc)
