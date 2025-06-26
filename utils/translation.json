@@ -75,6 +75,43 @@
       "ru": "Пожалуйста, выберите новый язык! 🌐"
     }
   },
+   "human_readable_rule": {
+    "every": {
+      "en": "Every",
+      "uz": "Har",
+      "ru": "Каждый"
+    },
+    "frequency": {
+      "hour": { "en": "hour", "uz": "soat", "ru": "час" },
+      "day": { "en": "day", "uz": "kun", "ru": "день" },
+      "week": { "en": "week", "uz": "hafta", "ru": "неделя" },
+      "month": { "en": "month", "uz": "oy", "ru": "месяц" }
+    },
+    "plural_s": {
+      "en": "s",
+      "uz": "",
+      "ru": ""
+    },
+    "days": {
+      "monday": { "en": "Monday", "uz": "Dushanba", "ru": "Понедельник" },
+      "tuesday": { "en": "Tuesday", "uz": "Seshanba", "ru": "Вторник" },
+      "wednesday": { "en": "Wednesday", "uz": "Chorshanba", "ru": "Среда" },
+      "thursday": { "en": "Thursday", "uz": "Payshanba", "ru": "Четверг" },
+      "friday": { "en": "Friday", "uz": "Juma", "ru": "Пятница" },
+      "saturday": { "en": "Saturday", "uz": "Shanba", "ru": "Суббота" },
+      "sunday": { "en": "Sunday", "uz": "Yakshanba", "ru": "Воскресенье" }
+    },
+    "weekly_days_pattern": {
+      "en": "Every {days}",
+      "uz": "Har {days_of_week}",
+      "ru": "Каждую {days_of_week}"
+    },
+    "at_time_pattern": {
+      "en": " at {time}",
+      "uz": " soat {time} da",
+      "ru": " в {time}"
+    }
+  },
   "scheduling": {
     "scheduling_in_progress": {
       "en": "⏰ Scheduling your request...",
@@ -87,9 +124,9 @@
       "ru": "😥 Ой! Это время уже в прошлом. Пожалуйста, попробуйте указать будущее время."
     },
     "schedule_confirmation": {
-      "en": "<b>✅ Reminder Scheduled!</b>\n\nI will remind you to:\n<b>Event:</b> {event_name}\n<b>{schedule_text}</b>",
-      "uz": "<b>✅ Eslatma Rejalashtirildi!</b>\n\nMen sizga eslataman:\n<b>Hodisa:</b> {event_name}\n<b>{schedule_text}</b>",
-      "ru": "<b>✅ Напоминание запланировано!</b>\n\nЯ напомню вам:\n<b>Событие:</b> {event_name}\n<b>{schedule_text}</b>"
+      "en": "<b>✅ Reminder Scheduled!</b>\n\n<b>Event:</b> {event_name}\n<b>{schedule_text}</b>",
+      "uz": "<b>✅ Eslatma Rejalashtirildi!</b>\n\n<b>Hodisa:</b> {event_name}\n<b>{schedule_text}</b>",
+      "ru": "<b>✅ Напоминание запланировано!</b>\n\n<b>Событие:</b> {event_name}\n<b>{schedule_text}</b>"
     },
     "schedule_error": {
       "en": "❌ Sorry, I ran into an error trying to schedule that.",

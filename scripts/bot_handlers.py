@@ -251,11 +251,11 @@ class BotHandlers:
                 return
 
             if await self._scheduler_reminder(chat_id, user.id, user_tz, data, remind_time_utc):
-                display_time_str = remind_time_local.strftime('%A, %B, %d at %I:%M %p %Z')
+                display_time_str = remind_time_local.strftime('%Y/%m/%d %H:%M %Z')
                 if data.get("rrule"):
-                    schedule_text = create_human_readable_rule(data["rrule"], remind_time_local)
+                    schedule_text = create_human_readable_rule(data["rrule"], remind_time_local, self.deps.lm, user.language)
                 else:
-                    schedule_text = f"On: {display_time_str}"
+                    schedule_text = self.deps.lm.get_string("scheduling.one_time_schedule_prefix", user.language, display_time_str=display_time_str)
 
                 confirmation_message = self.deps.lm.get_string(
                     "scheduling.schedule_confirmation",
@@ -344,11 +344,11 @@ class BotHandlers:
             )
             try:
                 if event.schedule.rrule:
-                    rule_text = create_human_readable_rule(event.schedule.rrule, scheduled_time_local)
+                    rule_text = create_human_readable_rule(event.schedule.rrule, scheduled_time_local, self.deps.lm, user.language)
                     response_text += self.deps.lm.get_string("reminders.recurring_prefix", user.language,
                                                              rule_text=rule_text)
                 else:
-                    response_text += f"  - 🕐 {scheduled_time_local.strftime('%A, %b %d at %I:%M %p %Z')}\n\n"
+                    response_text += f"  - 🗓️ {scheduled_time_local.strftime('%Y/%m/%d %H:%M %Z')}\n\n"
             except Exception as e:
                 logging.error(f"List reminder error: {e}, event rrule: {event.schedule.rrule}")
         try:
@@ -379,9 +379,9 @@ class BotHandlers:
         for event in reminders:
             scheduled_time_local = event.schedule.scheduled_time.replace(tzinfo=pytz.utc).astimezone(user_tz)
             if event.schedule.rrule:
-                schedule_desc = create_human_readable_rule(event.schedule.rrule, scheduled_time_local)
+                schedule_desc = create_human_readable_rule(event.schedule.rrule, scheduled_time_local, self.deps.lm, user.language)
             else:
-                schedule_desc = scheduled_time_local.strftime('%b %d at %I:%M %p')
+                schedule_desc = scheduled_time_local.strftime('%Y/%m/%d %H:%M %Z')
 
             button_text = f"{event.event_name[:30]}.. - {schedule_desc[:30]}"
             builder.add(InlineKeyboardButton(text=button_text, callback_data=f"cancel_{event.schedule.job_id}"))
