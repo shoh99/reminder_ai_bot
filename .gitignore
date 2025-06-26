@@ -3,3 +3,4 @@
 .idea
 .env
 reminder.db
+bot.log
