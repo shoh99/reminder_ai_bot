@@ -1,0 +1,203 @@
+{
+  "greetings": {
+    "welcome": {
+      "en": "Hello, {first_name}! 👋 I'm your Remind Me AI assistant. 🤖\n\nJust send me a text or voice message describing what you want to be reminded about and when! ✍️",
+      "uz": "Salom, {first_name}! 👋 Men sizning Eslatma AI yordamchingizman. 🤖\n\nNima haqida va qachon eslatishimni xohlasangiz, menga matnli yoki ovozli xabar yuboring! ✍️",
+      "ru": "Здравствуйте, {first_name}! 👋 Я ваш ИИ-ассистент для напоминаний. 🤖\n\nПросто отправьте мне текстовое или голосовое сообщение с описанием того, о чем и когда вам напомнить! ✍️"
+    },
+    "request_phone": {
+      "en": "Hello {first_name}! Please share your phone number to get started. 📱",
+      "uz": "Salom {first_name}! Boshlash uchun telefon raqamingizni ulashing. 📱",
+      "ru": "Здравствуйте, {first_name}! Пожалуйста, поделитесь вашим номером телефона, чтобы начать. 📱"
+    },
+    "request_phone_generic": {
+      "en": "Please share your phone number first so I can assist you. 📱",
+      "uz": "Sizga yordam berishim uchun avval telefon raqamingizni ulashing. 📱",
+      "ru": "Пожалуйста, сначала поделитесь вашим номером телефона, чтобы я мог вам помочь. 📱"
+    }
+  },
+  "buttons": {
+    "share_phone": {
+      "en": "Share your phone number ☎️",
+      "uz": "Telefon raqamingizni ulashish ☎️",
+      "ru": "Поделиться номером телефона ☎️"
+    },
+    "list_reminders": {
+      "en": "📝 List Reminders",
+      "uz": "📝 Eslatmalarni Ko'rish",
+      "ru": "📝 Список напоминаний"
+    },
+    "cancel_reminders": {
+      "en": "❌ Cancel Reminders",
+      "uz": "❌ Eslatmalarni Bekor Qilish",
+      "ru": "❌ Отменить напоминания"
+    },
+    "help": {
+      "en": "❓ Help",
+      "uz": "❓ Yordam",
+      "ru": "❓ Помощь"
+    },
+    "timezone_uz": {
+      "en": "🇺🇿 Uzbekistan (Tashkent)",
+      "uz": "🇺🇿 Oʻzbekiston (Toshkent)",
+      "ru": "🇺🇿 Узбекистан (Ташкент)"
+    },
+    "timezone_kr": {
+      "en": "🇰🇷 South Korea (Seoul)",
+      "uz": "🇰🇷 Janubiy Koreya (Seul)",
+      "ru": "🇰🇷 Южная Корея (Сеул)"
+    },
+    "change_language": {
+      "en": "🌐 Change Language",
+      "ru": "🌐 Изменить язык",
+      "uz": "🌐 Tilni o'zgartirish"
+    }
+  },
+  "setup": {
+    "request_timezone": {
+      "en": "Please select your timezone to continue: 🌍",
+      "uz": "Davom etish uchun vaqt mintaqangizni tanlang: 🌍",
+      "ru": "Пожалуйста, выберите ваш часовой пояс, чтобы продолжить: 🌍"
+    },
+    "timezone_selected": {
+      "en": "✅ You can now send me a reminder request.",
+      "uz": "✅ Endi menga eslatma so'rovini yuborishingiz mumkin.",
+      "ru": "✅ Теперь вы можете отправить мне запрос на напоминание."
+    },
+    "phone_thanks": {
+      "en": "✅ Thanks! Now, please select your timezone to ensure reminders are accurate. 🌍",
+      "uz": "✅ Rahmat! Endi, eslatmalar to'g'ri bo'lishi uchun vaqt mintaqangizni tanlang. 🌍",
+      "ru": "✅ Спасибо! Теперь, пожалуйста, выберите ваш часовой пояс для точности напоминаний. 🌍"
+    },
+    "ask_language": {
+      "en": "Please choose new language! 🌐",
+      "uz": "Iltimos, yangi tilni tanlang! 🌐",
+      "ru": "Пожалуйста, выберите новый язык! 🌐"
+    }
+  },
+  "scheduling": {
+    "scheduling_in_progress": {
+      "en": "⏰ Scheduling your request...",
+      "uz": "⏰ So'rovingiz rejalashtirilmoqda...",
+      "ru": "⏰ Планирую ваш запрос..."
+    },
+    "past_time_error": {
+      "en": "😥 Oops! That time is in the past. Please try a future time.",
+      "uz": "😥 Voy! Bu vaqt o'tib ketgan. Iltimos, kelajakdagi vaqtni kiriting.",
+      "ru": "😥 Ой! Это время уже в прошлом. Пожалуйста, попробуйте указать будущее время."
+    },
+    "schedule_confirmation": {
+      "en": "<b>✅ Reminder Scheduled!</b>\n\nI will remind you to:\n<b>Event:</b> {event_name}\n<b>{schedule_text}</b>",
+      "uz": "<b>✅ Eslatma Rejalashtirildi!</b>\n\nMen sizga eslataman:\n<b>Hodisa:</b> {event_name}\n<b>{schedule_text}</b>",
+      "ru": "<b>✅ Напоминание запланировано!</b>\n\nЯ напомню вам:\n<b>Событие:</b> {event_name}\n<b>{schedule_text}</b>"
+    },
+    "schedule_error": {
+      "en": "❌ Sorry, I ran into an error trying to schedule that.",
+      "uz": "❌ Kechirasiz, buni rejalashtirishda xatolikka duch keldim.",
+      "ru": "❌ К сожалению, при попытке запланировать это произошла ошибка."
+    },
+    "unexpected_error": {
+      "en": "🤯 An unexpected error occurred during scheduling.",
+      "uz": "🤯 Rejalashtirish paytida kutilmagan xatolik yuz berdi.",
+      "ru": "🤯 Во время планирования произошла непредвиденная ошибка."
+    },
+    "one_time_schedule_prefix": {
+      "en": "On: {display_time_str}",
+      "uz": "{display_time_str} kuni",
+      "ru": "В: {display_time_str}"
+    }
+  },
+  "reminders": {
+    "reminder_notification": {
+      "en": "🔔 <b>Reminder:</b> {event_name}\n<b>Details:</b> {event_description}\n",
+      "uz": "🔔 <b>Eslatma:</b> {event_name}\n<b>Tafsilotlar:</b> {event_description}\n",
+      "ru": "🔔 <b>Напоминание:</b> {event_name}\n<b>Детали:</b> {event_description}\n"
+    },
+    "no_active_reminders": {
+      "en": "📝 You have no active reminders.",
+      "uz": "📝 Sizda faol eslatmalar yo'q.",
+      "ru": "📝 У вас нет активных напоминаний."
+    },
+    "active_reminders_header": {
+      "en": "📋 **Your Active Reminders ({reminder_count}):**\n\n",
+      "uz": "📋 **Sizning Faol Eslatmalaringiz ({reminder_count}):**\n\n",
+      "ru": "📋 **Ваши активные напоминания ({reminder_count}):**\n\n"
+    },
+    "recurring_prefix": {
+      "en": "  - 🔄 Recurring: {rule_text}\n\n",
+      "uz": "  - 🔄 Takrorlanuvchi: {rule_text}\n\n",
+      "ru": "  - 🔄 Повторяющееся: {rule_text}\n\n"
+    },
+    "onetime_prefix": {
+      "en": "  - 🗓️ {local_time}\n\n",
+      "uz": "  - 🗓️ {local_time}\n\n",
+      "ru": "  - 🗓️ {local_time}\n\n"
+    },
+    "recurring_schedule_start": {
+      "en": "Recurring schedule starting on {start_date} 🔄",
+      "uz": "Takroriy jadval {start_date} dan boshlanadi 🔄",
+      "ru": "Повторяющееся расписание, начиная с {start_date} 🔄"
+    }
+  },
+  "cancellation": {
+    "no_reminders_to_cancel": {
+      "en": "🗑️ You have no active reminders to cancel.",
+      "uz": "🗑️ Bekor qilish uchun sizda faol eslatmalar yo'q.",
+      "ru": "🗑️ У вас нет активных напоминаний для отмены."
+    },
+    "select_reminder_to_cancel": {
+      "en": "🗑️ **Select a reminder to cancel:**",
+      "uz": "🗑️ **Bekor qilish uchun eslatmani tanlang:**",
+      "ru": "🗑️ **Выберите напоминание для отмены:**"
+    },
+    "already_cancelled": {
+      "en": "This reminder may have already been cancelled. ✅",
+      "uz": "Bu eslatma allaqachon bekor qilingan bo'lishi mumkin. ✅",
+      "ru": "Это напоминание, возможно, уже было отменено. ✅"
+    },
+    "cancellation_confirmation": {
+      "en": "✅ **Reminder Cancelled**\n\n📋 {event_name}",
+      "uz": "✅ **Eslatma Bekor Qilindi**\n\n📋 {event_name}",
+      "ru": "✅ **Напоминание отменено**\n\n📋 {event_name}"
+    },
+    "show_reminders_list": {
+      "en": "Here are your reminders 👇",
+      "uz": "Eslatmalar ro'yxati 👇",
+      "ru": "Вот список напоминаний 👇"
+    }
+  },
+  "analysis": {
+    "text_request_in_progress": {
+      "en": "🤔 Analyzing your request...",
+      "uz": "🤔 So'rovingiz tahlil qilinmoqda...",
+      "ru": "🤔 Анализирую ваш запрос..."
+    },
+    "voice_request_in_progress": {
+      "en": "🎧 Heard you! Analyzing your voice message...",
+      "uz": "🎧 Eshitdim! Ovozli xabaringiz tahlil qilinmoqda...",
+      "ru": "🎧 Услышал вас! Анализирую ваше голосовое сообщение..."
+    },
+    "unclear_request": {
+      "en": "❓ I couldn't quite understand that. Could you try rephrasing your reminder?",
+      "uz": "❓ Men buni to'liq tushuna olmadim. Eslatmangizni boshqacha ifodalay olasizmi?",
+      "ru": "❓ Я не совсем понял. Не могли бы вы перефразировать ваше напоминание?"
+    },
+    "format_error": {
+      "en": "🤯 I understood the event but struggled with the date or time format. Could you be more specific?",
+      "uz": "🤯 Men hodisani tushundim, lekin sana yoki vaqt formati bilan qiynaldim. Aniqroq ma'lumot bera olasizmi?",
+      "ru": "🤯 Я понял суть события, но возникли проблемы с форматом даты или времени. Не могли бы вы быть точнее?"
+    },
+    "voice_confirmation": {
+      "en": "<b>Got it! Here's what I heard:</b>\n\n🗣 <b>Transcript:</b> “<i>{transcript}</i>”\n\n📝 <b>Event:</b> {event}\n📅 <b>Date:</b> {date}\n⏰ <b>Time:</b> {time}",
+      "uz": "<b>Tushunarli! Men eshitganlarim:</b>\n\n🗣 <b>Matn:</b> “<i>{transcript}</i>”\n\n📝 <b>Hodisa:</b> {event}\n📅 <b>Sana:</b> {date}\n⏰ <b>Vaqt:</b> {time}",
+      "ru": "<b>Понял! Вот что я расслышал:</b>\n\n🗣 <b>Транскрипция:</b> «<i>{transcript}</i>»\n\n📝 <b>Событие:</b> {event}\n📅 <b>Дата:</b> {date}\n⏰ <b>Время:</b> {time}"
+    }
+  },
+  "errors": {
+    "generic_error": {
+      "en": "⚠️ Sorry, something went wrong. Please try again.",
+      "uz": "⚠️ Kechirasiz, xatolik yuz berdi. Iltimos, qaytadan urining.",
+      "ru": "⚠️ Извините, что-то пошло не так. Пожалуйста, попробуйте еще раз."
+    }
+  }
+}

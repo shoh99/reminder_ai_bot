@@ -18,9 +18,22 @@ from aiogram.enums import ParseMode
 from sqlalchemy.orm import sessionmaker, Session
 from scripts.dependincies import BotDependencies
 from scripts.models import Users
+from utils.filters import TranslatedText
+from utils.language_manager import LanguageManager
 from utils.utils import convert_to_json, create_human_readable_rule, safe_timezone_convert
 
 SESSION_FACTORY = None
+
+
+def get_language_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="🇬🇧 English", callback_data="set_lang_en"),
+        InlineKeyboardButton(text="🇺🇿 O'zbekcha", callback_data="set_lang_uz"),
+        InlineKeyboardButton(text="🇷🇺 Русский", callback_data="set_lang_ru")
+    )
+    builder.adjust(1)
+    return builder.as_markup()
 
 
 def get_timezone_keyboard():
@@ -33,18 +46,19 @@ def get_timezone_keyboard():
     return builder.as_markup()
 
 
-def share_phone_button():
+def share_phone_button(text: str):
     builder = ReplyKeyboardBuilder()
-    builder.button(text="Share your phone number ☎️", request_contact=True)
+    builder.button(text=text, request_contact=True)
     return builder.as_markup(resize_keyboard=True, one_time_keyboard=True)
 
 
-def get_main_buttons():
+def get_main_buttons(lm: LanguageManager, lang: str):
     builder = ReplyKeyboardBuilder()
-    builder.button(text="List Reminders")
-    builder.button(text="Cancel Reminders")
-    builder.button(text="Help")
-    builder.adjust(2, 1)
+    builder.button(text=lm.get_string("buttons.list_reminders", lang))
+    builder.button(text=lm.get_string("buttons.cancel_reminders", lang))
+    builder.button(text=lm.get_string("buttons.help", lang))
+    builder.button(text=lm.get_string("buttons.change_language", lang))
+    builder.adjust(2, 2)
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -68,13 +82,8 @@ async def send_reminder(bot_token: str, chat_id: int, event_name: str,
     """
     logging.info(f"Executing job {job_id} to send reminder to chat {chat_id}")
     bot = Bot(token=bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    lm = LanguageManager()
     try:
-        reminder_text = (
-            f"🔔 <b>Reminder:</b> {event_name}\n"
-            f"<b>Details:</b> {event_description}\n"
-        )
-        await bot.send_message(chat_id=chat_id, text=reminder_text, reply_markup=get_main_buttons())
-
         async with get_db_session(SESSION_FACTORY) as session:
             event = db.get_event_by_job_id(session, job_id)
             status = "complete"
@@ -82,6 +91,12 @@ async def send_reminder(bot_token: str, chat_id: int, event_name: str,
             if not event:
                 logging.warning(f"Could not find event for job {job_id} after sending reminder.")
                 return
+
+            reminder_text = lm.get_string("reminders.reminder_notification", event.user.language, event_name=event_name,
+                                          event_description=event_description)
+
+            await bot.send_message(chat_id=chat_id, text=reminder_text,
+                                   reply_markup=get_main_buttons(lm, event.user.language))
 
             if event.schedule and event.schedule.rrule:
                 try:
@@ -219,7 +234,10 @@ class BotHandlers:
             return False
 
     async def _process_and_schedule(self, user: Users, chat_id: int, data: dict, remind_time_naive: datetime):
-        status_message = await self.deps.bot.send_message(chat_id=chat_id, text="⏰ Scheduling your request...")
+        status_message = await self.deps.bot.send_message(chat_id=chat_id, text=self.deps.lm.get_string(
+            "scheduling.scheduling_in_progress",
+            user.language)
+                                                          )
         try:
             user_tz = pytz.timezone(user.timezone)
             # localize the naive datetime to user's timezone
@@ -229,7 +247,7 @@ class BotHandlers:
             # compare timezone-aware datetimes
             now_utc = datetime.now(pytz.utc)
             if remind_time_utc <= now_utc:
-                await status_message.edit_text(text="Oops! That time is in the past. Please try a future time.")
+                await status_message.edit_text(text=self.deps.lm.get_string("scheduling.past_time_error", user.language))
                 return
 
             if await self._scheduler_reminder(chat_id, user.id, user_tz, data, remind_time_utc):
@@ -239,34 +257,44 @@ class BotHandlers:
                 else:
                     schedule_text = f"On: {display_time_str}"
 
-                confirmation_message = (
-                    f"<b>✅ Reminder Scheduled!</b>\n\nI will remind you to:\n"
-                    f"<b>Event:</b> {data['event_name']}\n<b>{schedule_text}</b>"
+                confirmation_message = self.deps.lm.get_string(
+                    "scheduling.schedule_confirmation",
+                    user.language,
+                    event_name=data['event_name'],
+                    schedule_text=schedule_text
                 )
+
                 await status_message.edit_text(text=confirmation_message)
             else:
-                await status_message.edit_text(text="Sorry, I ran into an error trying to schedule that.")
+                await status_message.edit_text(text=self.deps.lm.get_string("scheduling.schedule_error", user.language))
         except Exception as e:
             logging.error(f"Error at processing and scheduling job: {e}")
-            await status_message.edit_text(text="An unexpected error occurred during scheduling.")
+            await status_message.edit_text(text=self.deps.lm.get_string("scheduling.unexpected_error", user.language))
 
     # --- Message and Callback Handlers as class methods ---
     async def start(self, message: Message):
         async with get_db_session(self.deps.session_factory) as session:
             user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
-
-            welcome_text = (
-                f"Hello, {message.from_user.first_name}! 🤖 I'm your Remind Me AI assistant.\n\n"
-                "Just send me a text or voice message describing what you want to be reminded about and when!"
-            )
-            if not user or not user.phone_number:
+            if not user.language:
                 await message.answer(
-                    f"Hello {message.from_user.first_name}! Please share your phone number to get started.",
-                    reply_markup=share_phone_button())
+                    "Please select your language:\n\nTilni tanlang:\n\nВыберите ваш язык:",
+                    reply_markup=get_language_keyboard()
+                )
+                return
+
+            user_lang = user.language
+            if not user.phone_number:
+                response_message = self.deps.lm.get_string("greetings.request_phone", user_lang,
+                                                           first_name=message.from_user.first_name)
+                await message.answer(response_message, reply_markup=share_phone_button())
             elif user.timezone == "UTC":
-                await message.answer("Please select your timezone to continue:", reply_markup=get_timezone_keyboard())
+                response_message = self.deps.lm.get_string("setup.request_timezone", user_lang)
+                await message.answer(response_message, reply_markup=get_timezone_keyboard())
             else:
-                await message.answer(welcome_text, reply_markup=get_main_buttons())
+                response_message = self.deps.lm.get_string("greetings.welcome", user_lang,
+                                                           first_name=message.from_user.first_name)
+
+                await message.answer(response_message, reply_markup=get_main_buttons(self.deps.lm, user_lang))
 
     async def select_timezone(self, callback: CallbackQuery):
         """Handle the user's timezone selection"""
@@ -278,14 +306,17 @@ class BotHandlers:
         try:
             user_tz = callback.data.split("tz_")[1]
             async with get_db_session(self.deps.session_factory) as session:
-                if db.update_user_timezone(session, callback.message.chat.id, user_tz):
-                    await callback.message.answer(f"You can now send me a reminder request.",
-                                                  reply_markup=get_main_buttons())
+                user = db.update_user_timezone(session, callback.message.chat.id, user_tz)
+                logging.info(f"User: {user}")
+                if user:
+                    user_lang = user.language
+                    await callback.message.answer(self.deps.lm.get_string("setup.timezone_selected", user_lang),
+                                                  reply_markup=get_main_buttons(self.deps.lm, user_lang))
                 else:
                     await callback.message.reply("Sorry, something went wrong. Please try again.")
         except Exception as e:
             logging.error(f"Error setting timezone: {e}")
-            await callback.message.edit_text("Sorry, something went wrong. Please try again.")
+            await callback.message.edit_text(self.deps.lm.get_string("errors.generic_error", user.language))
         finally:
             await callback.answer()
 
@@ -296,9 +327,13 @@ class BotHandlers:
             user_tz = pytz.timezone(user.timezone)
 
         if not reminders:
-            await message.answer("📝 You have no active reminders.", reply_markup=get_main_buttons())
+            await message.answer(self.deps.lm.get_string("reminders.no_active_reminders", user.language),
+                                 reply_markup=get_main_buttons(self.deps.lm, user.language))
             return
-        response_text = f"📋 **Your Active Reminders ({len(reminders)}):**\n\n"
+
+        response_text = self.deps.lm.get_string("reminders.active_reminders_header",
+                                                user.language,
+                                                reminder_count=len(reminders))
 
         for event in reminders:
             response_text += f"▪️{event.event_name}\n"
@@ -310,7 +345,8 @@ class BotHandlers:
             try:
                 if event.schedule.rrule:
                     rule_text = create_human_readable_rule(event.schedule.rrule, scheduled_time_local)
-                    response_text += f"  - 🕐 Recurring: {rule_text}\n\n"
+                    response_text += self.deps.lm.get_string("reminders.recurring_prefix", user.language,
+                                                             rule_text=rule_text)
                 else:
                     response_text += f"  - 🕐 {scheduled_time_local.strftime('%A, %b %d at %I:%M %p %Z')}\n\n"
             except Exception as e:
@@ -320,7 +356,8 @@ class BotHandlers:
         except Exception as e:
             logging.error(f"Error at deleting message. {e}")
 
-        await message.answer(response_text, parse_mode="Markdown", reply_markup=get_main_buttons())
+        await message.answer(response_text, parse_mode="Markdown",
+                             reply_markup=get_main_buttons(self.deps.lm, user.language))
 
     async def cancel_reminders_list(self, message: Message):
         async with get_db_session(self.deps.session_factory) as session:
@@ -333,7 +370,8 @@ class BotHandlers:
                 logging.error(f"Error at deleting message. {e}")
 
         if not reminders:
-            await message.answer("📝 You have no active reminders to cancel.", reply_markup=get_main_buttons())
+            await message.answer(self.deps.lm.get_string("reminders.no_active_reminders", user.language),
+                                 reply_markup=get_main_buttons(self.deps.lm, user.language))
             return
         builder = InlineKeyboardBuilder()
         user_tz = pytz.timezone(user.timezone)
@@ -349,8 +387,10 @@ class BotHandlers:
             builder.add(InlineKeyboardButton(text=button_text, callback_data=f"cancel_{event.schedule.job_id}"))
         builder.adjust(1)
 
-        await message.answer("Here are the reminders", reply_markup=get_main_buttons())
-        await message.answer("🗑️ **Select a reminder to cancel:**", reply_markup=builder.as_markup(),
+        await message.answer(self.deps.lm.get_string("cancellation.show_reminders_list", user.language),
+                             reply_markup=get_main_buttons(self.deps.lm, user.language))
+        await message.answer(self.deps.lm.get_string("cancellation.select_reminder_to_cancel", user.language),
+                             reply_markup=builder.as_markup(),
                              parse_mode="Markdown")
 
     async def cancel_reminder_callback(self, callback: CallbackQuery):
@@ -370,31 +410,69 @@ class BotHandlers:
                                                    message_id=callback.message.message_id)
             except Exception as e:
                 pass
-            await callback.message.answer(f"✅ **Reminder Cancelled**\n\n📋 {event.event_name}", parse_mode='Markdown',
-                                          reply_markup=get_main_buttons())
+            await callback.message.answer(
+                self.deps.lm.get_string("cancellation.cancellation_confirmation", event.user.language,
+                                        event_name=event.event_name), parse_mode='Markdown',
+                reply_markup=get_main_buttons(self.deps.lm, event.user.language))
         await callback.answer()
+
+    async def change_language(self, message: Message):
+        chat_id = message.chat.id
+        async with get_db_session(self.deps.session_factory) as session:
+            user = db.get_or_create_user(session, chat_id, message.from_user.first_name)
+
+            await message.answer(text=self.deps.lm.get_string("setup.ask_language", user.language),
+                                 reply_markup=get_language_keyboard())
+
+    async def select_langauge(self, callback: CallbackQuery):
+        lang_code = callback.data.split("_")[2]
+        chat_id = callback.message.chat.id
+        first_name = callback.from_user.first_name
+        logging.info(f"User selected language: {lang_code}")
+        async with get_db_session(self.deps.session_factory) as session:
+            user = db.add_user_lang(session, chat_id, lang_code)
+
+            try:
+                await self.deps.bot.delete_message(chat_id=chat_id, message_id=callback.message.message_id)
+            except Exception as e:
+                logging.error(f"Failed to delete message: {e}")
+            if user.phone_number is None:
+                await callback.message.answer(
+                    self.deps.lm.get_string("greetings.request_phone", lang_code, first_name=first_name),
+                    reply_markup=share_phone_button(self.deps.lm.get_string("buttons.share_phone", lang_code))
+                )
+            else:
+                await callback.message.answer(text=self.deps.lm.get_string("setup.timezone_selected", lang_code))
+
+            await callback.answer()
 
     async def get_user_contact(self, message: Message):
         async with get_db_session(self.deps.session_factory) as session:
-            db.add_user_phone(session, message.chat.id, message.contact.phone_number)
-        await message.answer("✅ Thanks! Now, please select your timezone to ensure reminders are accurate.",
-                             reply_markup=get_timezone_keyboard())
-        # await self.start(message)
+            user = db.add_user_phone(session, message.chat.id, message.contact.phone_number)
+
+            if user:
+                user_lang = user.language
+                response_text = self.deps.lm.get_string("setup.phone_thanks", user_lang)
+                await message.answer(response_text,
+                                     reply_markup=get_timezone_keyboard())
 
     async def handle_text_message(self, message: Message):
         async with get_db_session(self.deps.session_factory) as session:
             user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
         if not user or not user.phone_number:
-            await message.answer("Please share your phone number first so I can assist you.",
-                                 reply_markup=share_phone_button())
+            await message.answer(self.deps.lm.get_string("greetings.request_phone_generic", user.language),
+                                 reply_markup=share_phone_button(self.deps.lm.get_string("buttons.share_phone",
+                                                                                         user.language)))
             return
 
         if user.timezone == 'UTC':
-            await message.answer("Please select your timezone first to set a reminder. ",
+            await message.answer(self.deps.lm.get_string("setup.request_timezone", user.language),
                                  reply_markup=get_timezone_keyboard())
             return
 
-        status_message = await message.reply("Analyzing your request...", reply_markup=get_main_buttons())
+        status_message = await message.reply(
+            self.deps.lm.get_string("analysis.text_request_in_progress", user.language),
+            reply_markup=get_main_buttons(self.deps.lm, user.language))
         response_text = self.deps.ai_manager.analyze_text(message.text, user.timezone)
         json_response = convert_to_json(response_text)
 
@@ -405,20 +483,29 @@ class BotHandlers:
                 remind_time = datetime.strptime(f"{json_response['date']} {json_response['time']}", '%Y-%m-%d %H:%M:%S')
                 await self._process_and_schedule(user, message.chat.id, json_response, remind_time)
             except (ValueError, TypeError, KeyError):
-                await status_message.edit_text(
-                    "I understood the event but struggled with the date or time format. Could you be more specific?")
+                new_text = self.deps.lm.get_string("analysis.format_error", user.language)
+                if status_message != new_text:
+                    await status_message.edit_text(new_text)
+                else:
+                    await status_message.edit_text(self.deps.lm.get_string("analysis.format_error", user.language))
         else:
-            await status_message.edit_text("I couldn't quite understand that. Could you try rephrasing your reminder?")
+            await status_message.answer(self.deps.lm.get_string("analysis.unclear_request", user.language))
 
     async def handle_voice_message(self, message: Message):
         async with get_db_session(self.deps.session_factory) as session:
             user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
         if not user or not user.phone_number:
-            await message.answer("Please share your phone number first so I can assist you.",
+            await message.answer("greetings.request_phone_generic", user.language,
                                  reply_markup=share_phone_button())
             return
 
-        status_message = await message.reply("Heard you! Analyzing your voice message...")
+        if user.timezone == 'UTC':
+            await message.answer(self.deps.lm.get_string("setup.request_timezone", user.language),
+                                 reply_markup=get_timezone_keyboard())
+            return
+
+        status_message = await message.reply(
+            self.deps.lm.get_string("analysis.voice_request_in_progress", user.language))
 
         with tempfile.TemporaryDirectory() as temp_dir:
             file_path = os.path.join(temp_dir, f"{message.voice.file_id}.ogg")
@@ -435,25 +522,25 @@ class BotHandlers:
                     time = json_response.get('time')
 
                     remind_time = datetime.strptime(f"{date} {time}", '%Y-%m-%d %H:%M:%S')
-
-                    response_text_confirmation = (
-                        f"<b>Got it! Here's what I heard:</b>\n\n"
-                        f"🗣 <b>Transcript:</b> “<i>{transcript}</i>”\n\n"
-                        f"📝 <b>Event:</b> {event}\n"
-                        f"📅 <b>Date:</b> {date}\n"
-                        f"⏰ <b>Time:</b> {time}"
+                    response_text_confirmation = self.deps.lm.get_string(
+                        "analysis.voice_confirmation",
+                        user.language,
+                        transcript=transcript,
+                        event=event,
+                        date=date,
+                        time=time
                     )
-                    await message.answer(response_text_confirmation, reply_markup=get_main_buttons())
+
+                    await message.answer(response_text_confirmation,
+                                         reply_markup=get_main_buttons(self.deps.lm, user.language))
                     await self._process_and_schedule(user, message.chat.id, json_response, remind_time)
                 except (ValueError, TypeError, KeyError):
-                    await status_message.edit_text(
-                        "I understood the event but struggled with the date or time format. Could you be more specific?")
+                    await status_message.edit_text(self.deps.lm.get_string("analysis.format_error", user.language))
             else:
-                await status_message.edit_text(
-                    "I couldn't quite understand that. Could you try rephrasing your reminder?")
+                await status_message.edit_text(self.deps.lm.get_string("analysis.unclear_request", user.language))
 
 
-def register_handlers(dp: Dispatcher, deps: BotDependencies):
+def register_handlers(dp: Dispatcher, deps: BotDependencies, lm: LanguageManager):
     """
     Registers all handlers with proper dependency injection using a class-based approach.
     """
@@ -463,13 +550,15 @@ def register_handlers(dp: Dispatcher, deps: BotDependencies):
         SESSION_FACTORY = deps.session_factory
 
     dp.message.register(handlers.start, Command("start", "help"))
-    dp.message.register(handlers.start, F.text == "Help")
+    dp.message.register(handlers.start, TranslatedText(lm, "buttons.help"))
     dp.message.register(handlers.list_reminders, Command("list"))
-    dp.message.register(handlers.list_reminders, F.text == "List Reminders")
+    dp.message.register(handlers.list_reminders, TranslatedText(lm, "buttons.list_reminders"))
     dp.message.register(handlers.cancel_reminders_list, Command("cancel"))
-    dp.message.register(handlers.cancel_reminders_list, F.text == "Cancel Reminders")
+    dp.message.register(handlers.cancel_reminders_list, TranslatedText(lm, "buttons.cancel_reminders"))
+    dp.message.register(handlers.change_language, TranslatedText(lm, "buttons.change_language"))
     dp.message.register(handlers.get_user_contact, F.contact)
     dp.message.register(handlers.handle_text_message, F.text)
     dp.message.register(handlers.handle_voice_message, F.voice)
     dp.callback_query.register(handlers.cancel_reminder_callback, F.data.startswith("cancel_"))
     dp.callback_query.register(handlers.select_timezone, F.data.startswith("tz_"))
+    dp.callback_query.register(handlers.select_langauge, F.data.startswith("set_lang"))

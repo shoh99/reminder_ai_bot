@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from services.ai_services import AIManager
 from scripts.bot_handlers import register_handlers
 from scripts.dependincies import BotDependencies  # <-- Import from the new file
+from utils.language_manager import LanguageManager
 from utils.logger import setup_logging
 from scripts.models import create_database
 from config.settings import Settings  # Use the settings instance you created
@@ -44,16 +45,17 @@ async def main():
         bot = Bot(token=settings.telegram_bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         dp = Dispatcher()
         ai_manager = AIManager(api_key=settings.gemini_api_key)
-
+        lm = LanguageManager()
         # Create the dependencies object
         deps = BotDependencies(
             bot=bot,
             session_factory=SessionLocal,
             scheduler=scheduler,
-            ai_manager=ai_manager
+            ai_manager=ai_manager,
+            lm=lm
         )
 
-        register_handlers(dp, deps)
+        register_handlers(dp, deps, lm)
 
         scheduler.start()
         logger.info("Bot started successfully")

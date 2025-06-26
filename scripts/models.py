@@ -29,6 +29,7 @@ class Users(Base):
     timezone = Column(String, nullable=False, default='UTC')
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     phone_number = Column(String)
+    language = Column(String)
     events = relationship("Event", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):

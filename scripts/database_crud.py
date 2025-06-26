@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session, joinedload
 from scripts.models import Users, Event, Schedule, Tag
 
 
-
 def get_or_create_user(session: Session, chat_id: int, user_name: str) -> Users:
     """Get existing user or create new one"""
     try:
@@ -37,7 +36,24 @@ def get_or_create_user(session: Session, chat_id: int, user_name: str) -> Users:
         return None
 
 
-def add_user_phone(session: Session, chat_id: int, phone_number: str) -> bool:
+def add_user_lang(session: Session, chat_id: int, lang: str):
+    """Get existing user's language"""
+    try:
+        stmt = select(Users).where(Users.chat_id == chat_id)
+        user = session.scalars(stmt).first()
+        if user:
+            user.language = lang
+            session.commit()
+            return user
+
+    except Exception as e:
+        logging.error(f"Error getting/creating user {chat_id}: {e}")
+        session.rollback()
+
+    return None
+
+
+def add_user_phone(session: Session, chat_id: int, phone_number: str):
     """Add phone number to existing user"""
     try:
         user = session.query(Users).filter(Users.chat_id == chat_id).first()
@@ -45,12 +61,12 @@ def add_user_phone(session: Session, chat_id: int, phone_number: str) -> bool:
             user.phone_number = phone_number
             session.commit()
             logging.info(f"Added phone number for user {chat_id}")
-            return True
-        return False
+            return user
+        return None
     except Exception as e:
         logging.error(f"Error adding phone for user {chat_id}: {e}")
         session.rollback()
-        return False
+        return None
 
 
 def get_active_reminders_by_user(session: Session, user_id: uuid.UUID) -> List[Event]:
@@ -98,7 +114,8 @@ def get_event_by_job_id(session: Session, job_id: str) -> Optional[Event]:
         session.rollback()
         return None
 
-def get_schedule_by_job_id(session:Session, job_id: str) -> Schedule:
+
+def get_schedule_by_job_id(session: Session, job_id: str) -> Schedule:
     try:
         schedule = session.query(Schedule).filter(Schedule.job_id == job_id).first()
         return schedule
@@ -136,6 +153,7 @@ def update_event_status(session: Session, job_id: str, status: str) -> bool:
         session.rollback()
         return False
 
+
 def update_schedule_run_date(session: Session, job_id: str, next_run_date: datetime) -> bool:
     """update schedule next run time"""
     try:
@@ -154,27 +172,26 @@ def update_schedule_run_date(session: Session, job_id: str, next_run_date: datet
         return False
 
 
-def update_user_timezone(session: Session, chat_id: int, timezone:str):
+def update_user_timezone(session: Session, chat_id: int, timezone: str):
     """Updates the timezone for a specific user"""
     if not all([chat_id, timezone]):
         logging.warning("update_user_timezone: chat_id and timezone must be provided")
-        return False
+        return None
 
     try:
-        stmt = update(Users).where(Users.chat_id == chat_id).values(timezone=timezone)
-        result = session.execute(stmt)
-        if result.rowcount == 0:
-            logging.warning(f"No user found for chat_id {chat_id} to update timezone")
-            return False
-
-        session.commit()
-        logging.info(f"Update timezone for chat_id {chat_id} to {timezone}")
-        return True
+        user = session.query(Users).filter(Users.chat_id == chat_id).first()
+        if user:
+            user.timezone = timezone
+            session.commit()
+            logging.info(f"Update timezone for chat_id {chat_id} to {timezone}")
+            return user
 
     except SQLAlchemyError as e:
         session.rollback()
         logging.error(f"Error updating timezone for chat_id: {chat_id}: {e}")
-        return False
+
+    return None
+
 
 def get_or_create_tags(session: Session, tag_names: List[str]) -> List[Tag]:
     """Get existing tags or create new ones"""

@@ -8,6 +8,13 @@ from google import genai
 from google.genai import types
 
 
+
+lang_map = {
+    "uz": "Uzbek",
+    "ru": "Russian",
+    "en":"English"
+}
+
 class AIManager:
     def __init__(self, api_key: str):
         """Initializes the AI model client"""
@@ -20,9 +27,10 @@ class AIManager:
     def is_ready(self) -> bool:
         return self.ai_client is not None
 
-    def analyze_text(self, text: str, user_timezone: str = 'UTC') -> Optional[str]:
+    def analyze_text(self, text: str, user_timezone: str = 'UTC', user_lang: str='en',) -> Optional[str]:
         """Analyzes text to extrac reminder details using Gemini"""
         if not self.ai_client: return None
+        user_lang = lang_map[user_lang]
 
         user_tz = pytz.timezone(user_timezone)
         current_time_user = datetime.now(user_tz)
@@ -31,33 +39,41 @@ class AIManager:
         timezone_info = f"User's timezone: {user_timezone}"
 
         prompt = f"""
-        You are an intelligent scheduling assistant. The user has provided a message in either Uzbek or English. Your job is to:
-        
-        1. Analyze the message to identify the scheduled event.
-        2. Understand fuzzy or relative expressions such as "after 2 minutes", "in an hour", "tomorrow", or "ertaga" based on the current date: {current_date_str} and timezone: {timezone_info}, and convert them into exact date ("YYYY-MM-DD") and time ("HH:MM:SS") values.
-        3. Distinguish clearly between:
-        - One-time events: e.g., "after two minutes", "tomorrow at 9", "in 3 days"
-        - Recurring events: e.g., "every day", "har kuni", "every Monday", "har dushanba"
-        4. If it's a recurring event, generate a valid iCalendar RRULE string (e.g., 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO').
-        5. Suggest a few relevant tags based on the event (e.g., ["work", "health", "personal"]).
-        
-        ⚠️ Very important:
-        - Do **NOT** treat "after X minutes/hours/days" or "in X time" as recurring.
-        - Only generate an RRULE if the user clearly meant **repetition** (e.g., “every”, “har”, or “each”).
-        
+        You are a multilingual, intelligent scheduling assistant. The user has written a message in either Uzbek, Russian, or English. Your task is to:
+
+        1. Analyze the message to extract scheduling information.
+        2. Understand and interpret fuzzy or relative time expressions like:
+           - Uzbek: "ertaga", "har kuni", "soat 8"
+           - Russian: "завтра", "каждый день", "в 8 часов"
+           - English: "tomorrow", "every day", "at 8"
+        3. Convert all times and dates to precise formats using the current date: {current_date_str} {timezone_info}.
+        4. Clearly distinguish between:
+           - One-time events: e.g., "after two minutes", "in an hour", "tomorrow"
+           - Recurring events: e.g., "every Monday", "har dushanba", "каждую неделю"
+        5. Only generate an RRULE if the user clearly refers to repetition.
+        6. Suggest a few relevant tags based on the event (e.g., ["work", "personal", "health"]).
+
+        Finally, translate your response into the user's preferred language: "{user_lang}".
+        - Use short, clear translations.
+        - Only respond in that language.
+        - Do not explain anything, just return the JSON object.
+
         Respond STRICTLY with a JSON object in the following format:
         {{
-        "event_name": "A short event name",
-        "event_description": "A concise description of the event.",
-        "date": "YYYY-MM-DD format. For recurring events, this should be the first occurrence date.",
-        "time": "HH:MM:SS 24-hour format.",
-        "type": "'one_time' or 'recurring'",
-        "rrule": "A valid iCalendar RRULE string if recurring, otherwise null",
-        "tags": ["Array", "of", "relevant", "tags", "like", "work", "health", "personal"],
-        "status": "'success' if the event is clear, or 'clarification_needed' if date/time is ambiguous."
+          "event_name": "A short event name in the user's language",
+          "event_description": "A concise description of the event in the user's language",
+          "date": "YYYY-MM-DD format. For recurring events, this should be the first occurrence date.",
+          "time": "HH:MM:SS 24-hour format.",
+          "type": "'one_time' or 'recurring'",
+          "rrule": "A valid iCalendar RRULE string if recurring, otherwise null",
+          "tags": ["Array", "of", "relevant", "tags", "translated", "into", "user", "language"],
+          "status": "'success' if the event is clear, or 'clarification_needed' if date/time is ambiguous."
         }}
-        
-        User's text: "{text}"
+
+        User's message:
+        \"{text}\"
+
+        Only return the JSON response. No explanation or extra commentary.
         """
 
         try:
@@ -67,7 +83,8 @@ class AIManager:
             print(f"Error during AI text analysis: {e}")
             return None
 
-    def analyze_audio(self, voice_file_path: str, user_timezone: str = 'UTC') -> Optional[str]:
+    def analyze_audio(self, voice_file_path: str, user_timezone: str = 'UTC', user_lang: str = 'en') -> Optional[str]:
+        user_lang = lang_map[user_lang]
         if not self.ai_client: return None
 
         user_tz = pytz.timezone(user_timezone)
@@ -76,36 +93,42 @@ class AIManager:
 
         timezone_info = f"User's timezone: {user_timezone}"
         prompt = f"""
-        You are a highly intelligent scheduling assistant. 
-        Current date and time in user's timezone: {current_date_str}
-        {timezone_info}
-        
-         The user has provided an audio recording in either Uzbek or English. Your job is to:
+        You are a highly intelligent, multilingual scheduling assistant. The user has provided an audio recording in either Uzbek, Russian, or English. Your tasks are:
 
-        1. Accurately transcribe the spoken content from the audio.
-        2. Identify and extract the scheduled event, including its name, date, and time.
-        3. Interpret fuzzy or relative timing (e.g., "tomorrow", "every day", "next Monday", "in 2 minutes").
-           - IMPORTANT: Do not schedule events in the past.
-           - If the specified time has already passed today, schedule it for the next valid future occurrence (e.g., tomorrow or the next cycle).
-           - For high-frequency recurring events (e.g., "every 2 minutes"), ensure the first occurrence is slightly ahead of the current time.
-        4. Determine whether the event is a one-time or recurring event.
-           - If recurring, generate a valid iCalendar RRULE string (e.g., "FREQ=DAILY" or "FREQ=MINUTELY;INTERVAL=2").
-        5. Analyze the event's context and suggest a few relevant tags in a list (e.g., "health", "personal", "work").
+        1. Accurately transcribe the audio into text.
+        2. Identify the scheduled event from the transcript.
+        3. Detect and interpret fuzzy or relative time expressions such as:
+           - Uzbek: "ertaga", "har kuni", "soat 8"
+           - Russian: "завтра", "каждый день", "в 8 часов"
+           - English: "tomorrow", "every day", "at 8"
+        4. Convert all fuzzy time expressions into exact "YYYY-MM-DD" and "HH:MM:SS" formats, using the current date: {current_date_str}, {timezone_info}.
+        5. Determine whether the event is:
+           - a one-time event: e.g., “after 2 minutes”, “ertaga”, “через час”
+           - or a recurring event: e.g., “every Monday”, “har dushanba”, “каждый день”
+        6. If the event is recurring, generate a valid iCalendar RRULE (e.g., "FREQ=WEEKLY;BYDAY=MO").
+        7. Suggest a few relevant tags in the user's language (e.g., ["work", "health", "personal"]).
+
+        ⚠️ Do NOT treat phrases like “after 2 minutes” or “через 5 минут” as recurring events. These are one-time events.
+
+        Translate the final response fields into the user's preferred language: "{user_lang}".
+        - The transcript may remain in the spoken language.
+        - All other fields must be translated to "{user_lang}".
+        - Do not include explanations or commentary.
 
         Respond STRICTLY with a JSON object in the following format:
         {{
-          "transcript": "The full transcript of the user's audio.",
-          "event_name": "A short event name",
-          "event_description": "A concise description of the event.",
-          "date": "YYYY-MM-DD format. For recurring events, this should be the date of the first future occurrence.",
-          "time": "HH:MM:SS 24-hour format.",
-          "type": "Should be 'one_time' or 'recurring'.",
-          "rrule": "An iCalendar RRULE string if the type is 'recurring', otherwise null.",
-          "tags": ["An", "array", "of", "relevant", "tags", "like", "work", "personal", "health"],
-          "status": "'success' if all information is clear, or 'clarification_needed' if date/time is ambiguous."
+          "transcript": "Full transcription of the user's audio.",
+          "event_name": "A short event name in the user's language",
+          "event_description": "A concise description in the user's language",
+          "date": "YYYY-MM-DD",
+          "time": "HH:MM:SS",
+          "type": "'one_time' or 'recurring'",
+          "rrule": "A valid iCalendar RRULE string if recurring, otherwise null",
+          "tags": ["List", "of", "translated", "tags", "based", "on", "event"],
+          "status": "'success' if event is understood, otherwise 'clarification_needed'"
         }}
 
-        Process the audio and return only the JSON object as specified.
+        Only return this JSON object. Do not include extra explanation.
         """
         try:
             with open(voice_file_path, 'rb') as f:
