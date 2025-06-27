@@ -50,6 +50,8 @@ class AIManager:
         4. Clearly distinguish between:
            - One-time events: e.g., "after two minutes", "in an hour", "tomorrow"
            - Recurring events: e.g., "every Monday", "har dushanba", "каждую неделю"
+           - If the user does NOT mention a specific time, assume the default time is 08:00:00 (8 AM local time).
+           - Do NOT default to 00:00:00 unless the user explicitly says "midnight" or similar.
         5. Only generate an RRULE if the user clearly refers to repetition.
         6. Suggest a few relevant tags based on the event (e.g., ["work", "personal", "health"]).
 
@@ -102,6 +104,8 @@ class AIManager:
            - Russian: "завтра", "каждый день", "в 8 часов"
            - English: "tomorrow", "every day", "at 8"
         4. Convert all fuzzy time expressions into exact "YYYY-MM-DD" and "HH:MM:SS" formats, using the current date: {current_date_str}, {timezone_info}.
+           - If the user does NOT mention a specific time, assume the default time is 08:00:00 (8 AM local time).
+           - Do NOT default to 00:00:00 unless the user explicitly says "midnight" or similar.
         5. Determine whether the event is:
            - a one-time event: e.g., “after 2 minutes”, “ertaga”, “через час”
            - or a recurring event: e.g., “every Monday”, “har dushanba”, “каждый день”

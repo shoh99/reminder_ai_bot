@@ -1,3 +1,4 @@
+import math
 import tempfile
 import os
 import uuid
@@ -23,7 +24,7 @@ from utils.language_manager import LanguageManager
 from utils.utils import convert_to_json, create_human_readable_rule, safe_timezone_convert
 
 SESSION_FACTORY = None
-
+ITEMS_PER_PAGE = 6
 
 def get_language_keyboard():
     builder = InlineKeyboardBuilder()
@@ -60,6 +61,65 @@ def get_main_buttons(lm: LanguageManager, lang: str):
     builder.button(text=lm.get_string("buttons.change_language", lang))
     builder.adjust(2, 2)
     return builder.as_markup(resize_keyboard=True)
+
+
+def get_burger_menu_keyboard():
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="☰ Menu")
+    return builder.as_markup()
+
+
+def get_main_inline_menu(lm: LanguageManager, lang: str):
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text=lm.get_string("buttons.list_reminders", lang), callback_data="menu_list"),
+        InlineKeyboardButton(text=lm.get_string("buttons.cancel_reminders", lang), callback_data="menu_cancel"),
+        InlineKeyboardButton(text=lm.get_string("buttons.help", lang), callback_data="menu_help"),
+        InlineKeyboardButton(text=lm.get_string("buttons.change_language", lang), callback_data="menu_change_language")
+    )
+    builder.adjust(2, 2)
+    return builder.as_markup()
+
+
+def create_cancellation_keyboard(reminders: list, page:int):
+    """creates an inline keyboard for a specific page of reminders to be cancelled."""
+
+    builder = InlineKeyboardBuilder()
+    start_index = page * ITEMS_PER_PAGE
+    end_index = start_index + ITEMS_PER_PAGE
+
+    paginated_reminders = reminders[start_index:end_index]
+
+    for event in paginated_reminders:
+        button_text = f"❌ {event.event_name[:40]}" # Truncate for readability
+        builder.add(InlineKeyboardButton(text=button_text, callback_data=f"cancel_{event.schedule.job_id}"))
+
+    control_buttons = []
+    total_pages = math.ceil(len(reminders) / ITEMS_PER_PAGE)
+
+    if page > 0:
+        control_buttons.append(
+            InlineKeyboardButton(
+                text="⬅️",
+                callback_data=f"page_cancel_{page-1}" # go to the previous page
+            )
+        )
+
+    if end_index < len(reminders):
+        control_buttons.append(
+            InlineKeyboardButton(
+                text="➡️",
+                callback_data=f"page_cancel_{page+1}" # go to the next page
+            )
+        )
+
+
+    builder.adjust(1)
+    if control_buttons:
+        builder.row(*control_buttons)
+
+    return builder.as_markup()
+
 
 
 @asynccontextmanager
@@ -247,15 +307,19 @@ class BotHandlers:
             # compare timezone-aware datetimes
             now_utc = datetime.now(pytz.utc)
             if remind_time_utc <= now_utc:
-                await status_message.edit_text(text=self.deps.lm.get_string("scheduling.past_time_error", user.language))
+                await status_message.edit_text(
+                    text=self.deps.lm.get_string("scheduling.past_time_error", user.language))
+                logging.warning(f"The time passed, user given time: {remind_time_utc} utc , now: {now_utc}")
                 return
 
             if await self._scheduler_reminder(chat_id, user.id, user_tz, data, remind_time_utc):
                 display_time_str = remind_time_local.strftime('%Y/%m/%d %H:%M %Z')
                 if data.get("rrule"):
-                    schedule_text = create_human_readable_rule(data["rrule"], remind_time_local, self.deps.lm, user.language)
+                    schedule_text = create_human_readable_rule(data["rrule"], remind_time_local, self.deps.lm,
+                                                               user.language)
                 else:
-                    schedule_text = self.deps.lm.get_string("scheduling.one_time_schedule_prefix", user.language, display_time_str=display_time_str)
+                    schedule_text = self.deps.lm.get_string("scheduling.one_time_schedule_prefix", user.language,
+                                                            display_time_str=display_time_str)
 
                 confirmation_message = self.deps.lm.get_string(
                     "scheduling.schedule_confirmation",
@@ -344,7 +408,8 @@ class BotHandlers:
             )
             try:
                 if event.schedule.rrule:
-                    rule_text = create_human_readable_rule(event.schedule.rrule, scheduled_time_local, self.deps.lm, user.language)
+                    rule_text = create_human_readable_rule(event.schedule.rrule, scheduled_time_local, self.deps.lm,
+                                                           user.language)
                     response_text += self.deps.lm.get_string("reminders.recurring_prefix", user.language,
                                                              rule_text=rule_text)
                 else:
@@ -373,25 +438,17 @@ class BotHandlers:
             await message.answer(self.deps.lm.get_string("reminders.no_active_reminders", user.language),
                                  reply_markup=get_main_buttons(self.deps.lm, user.language))
             return
-        builder = InlineKeyboardBuilder()
-        user_tz = pytz.timezone(user.timezone)
 
-        for event in reminders:
-            scheduled_time_local = event.schedule.scheduled_time.replace(tzinfo=pytz.utc).astimezone(user_tz)
-            if event.schedule.rrule:
-                schedule_desc = create_human_readable_rule(event.schedule.rrule, scheduled_time_local, self.deps.lm, user.language)
-            else:
-                schedule_desc = scheduled_time_local.strftime('%Y/%m/%d %H:%M %Z')
+        total_page = math.ceil(len(reminders) / ITEMS_PER_PAGE)
+        keyword = create_cancellation_keyboard(reminders, page=0)
 
-            button_text = f"{event.event_name[:30]}.. - {schedule_desc[:30]}"
-            builder.add(InlineKeyboardButton(text=button_text, callback_data=f"cancel_{event.schedule.job_id}"))
-        builder.adjust(1)
-
-        await message.answer(self.deps.lm.get_string("cancellation.show_reminders_list", user.language),
-                             reply_markup=get_main_buttons(self.deps.lm, user.language))
+        #
+        # await message.answer(self.deps.lm.get_string("cancellation.show_reminders_list", user.language),
+        #                      reply_markup=get_main_buttons(self.deps.lm, user.language))
         await message.answer(self.deps.lm.get_string("cancellation.select_reminder_to_cancel", user.language),
-                             reply_markup=builder.as_markup(),
+                             reply_markup=keyword,
                              parse_mode="Markdown")
+
 
     async def cancel_reminder_callback(self, callback: CallbackQuery):
         job_id = callback.data.split("_", 1)[1]
@@ -414,6 +471,22 @@ class BotHandlers:
                 self.deps.lm.get_string("cancellation.cancellation_confirmation", event.user.language,
                                         event_name=event.event_name), parse_mode='Markdown',
                 reply_markup=get_main_buttons(self.deps.lm, event.user.language))
+        await callback.answer()
+
+    async def handle_cancel_pagination(self, callback: CallbackQuery):
+        """Handles next and back button clicks for the cancellation list"""
+        page = int(callback.data.split("_")[-1])
+
+        async with get_db_session(self.deps.session_factory) as session:
+            user = db.get_or_create_user(session, callback.message.chat.id, callback.from_user.first_name)
+            reminders = db.get_active_reminders_by_user(session, user.id)
+
+        user_lang = user.language
+        new_keyboard = create_cancellation_keyboard(reminders, page=page)
+        total_pages = math.ceil(len(reminders) / ITEMS_PER_PAGE)
+        new_text = f"{self.deps.lm.get_string('cancellation.select_reminder_to_cancel', user_lang)}"
+
+        await callback.message.edit_text(text=new_text, reply_markup=new_keyboard, parse_mode='Markdown')
         await callback.answer()
 
     async def change_language(self, message: Message):
@@ -559,6 +632,8 @@ def register_handlers(dp: Dispatcher, deps: BotDependencies, lm: LanguageManager
     dp.message.register(handlers.get_user_contact, F.contact)
     dp.message.register(handlers.handle_text_message, F.text)
     dp.message.register(handlers.handle_voice_message, F.voice)
+
     dp.callback_query.register(handlers.cancel_reminder_callback, F.data.startswith("cancel_"))
+    dp.callback_query.register(handlers.handle_cancel_pagination, F.data.startswith("page_cancel"))
     dp.callback_query.register(handlers.select_timezone, F.data.startswith("tz_"))
     dp.callback_query.register(handlers.select_langauge, F.data.startswith("set_lang"))
