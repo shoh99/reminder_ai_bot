@@ -336,7 +336,11 @@ class BotHandlers:
     # --- Message and Callback Handlers as class methods ---
     async def start(self, message: Message):
         async with get_db_session(self.deps.session_factory) as session:
-            user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
+            try:
+                user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
+            except Exception as e:
+                logging.error(f"Failed to get/create user: {e}")
+                await message.answer("Sorry, there was a error.")
             if not user.language:
                 await message.answer(
                     "Please select your language:\n\nTilni tanlang:\n\nВыберите ваш язык:",

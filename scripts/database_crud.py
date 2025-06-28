@@ -26,6 +26,7 @@ def get_or_create_user(session: Session, chat_id: int, user_name: str) -> Users:
         else:
             new_user = Users(chat_id=chat_id, user_name=user_name)
             session.add(new_user)
+            session.flush()
             session.commit()
 
             return new_user
@@ -33,7 +34,7 @@ def get_or_create_user(session: Session, chat_id: int, user_name: str) -> Users:
     except Exception as e:
         logging.error(f"Error getting/creating user {chat_id}: {e}")
         session.rollback()
-        return None
+        raise
 
 
 def add_user_lang(session: Session, chat_id: int, lang: str):
