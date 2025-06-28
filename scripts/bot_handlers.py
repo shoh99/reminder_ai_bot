@@ -293,7 +293,7 @@ class BotHandlers:
             logging.error(f"Schedule failed: {e}")
             return False
 
-    async def _process_and_schedule(self, user: Users, chat_id: int, data: dict, remind_time_naive: datetime):
+    async def _process_and_schedule(self, user: Users, chat_id: int, data: dict, remind_time_naive: datetime, now_utc: datetime):
         status_message = await self.deps.bot.send_message(chat_id=chat_id, text=self.deps.lm.get_string(
             "scheduling.scheduling_in_progress",
             user.language)
@@ -304,13 +304,11 @@ class BotHandlers:
             remind_time_local = user_tz.localize(remind_time_naive)
             # convert to utc for internal processing
             remind_time_utc = remind_time_local.astimezone(pytz.utc)
-            # compare timezone-aware datetimes
-            now_utc = datetime.now(pytz.utc)
-            if remind_time_utc <= now_utc:
-                await status_message.edit_text(
-                    text=self.deps.lm.get_string("scheduling.past_time_error", user.language))
-                logging.warning(f"The time passed, user given time: {remind_time_utc} utc , now: {now_utc}")
-                return
+            # if remind_time_utc <= now_utc:
+            #     await status_message.edit_text(
+            #         text=self.deps.lm.get_string("scheduling.past_time_error", user.language))
+            #     logging.warning(f"The time passed, user given time: {remind_time_utc} utc , now: {now_utc}")
+            #     return
 
             if await self._scheduler_reminder(chat_id, user.id, user_tz, data, remind_time_utc):
                 display_time_str = remind_time_local.strftime('%Y/%m/%d %H:%M %Z')
@@ -439,12 +437,7 @@ class BotHandlers:
                                  reply_markup=get_main_buttons(self.deps.lm, user.language))
             return
 
-        total_page = math.ceil(len(reminders) / ITEMS_PER_PAGE)
         keyword = create_cancellation_keyboard(reminders, page=0)
-
-        #
-        # await message.answer(self.deps.lm.get_string("cancellation.show_reminders_list", user.language),
-        #                      reply_markup=get_main_buttons(self.deps.lm, user.language))
         await message.answer(self.deps.lm.get_string("cancellation.select_reminder_to_cancel", user.language),
                              reply_markup=keyword,
                              parse_mode="Markdown")
@@ -462,16 +455,18 @@ class BotHandlers:
             except Exception as e:
                 logging.warning(f"Job {job_id} not found in scheduler, might be already completed or removed: {e}")
             db.update_event_status(session, job_id=job_id, status="cancelled")
-            try:
-                await self.deps.bot.delete_message(chat_id=callback.message.chat.id,
-                                                   message_id=callback.message.message_id)
-            except Exception as e:
-                pass
-            await callback.message.answer(
-                self.deps.lm.get_string("cancellation.cancellation_confirmation", event.user.language,
-                                        event_name=event.event_name), parse_mode='Markdown',
-                reply_markup=get_main_buttons(self.deps.lm, event.user.language))
-        await callback.answer()
+
+            await callback.answer(self.deps.lm.get_string("cancellation.cancellation_confirmation", event.user.language, event_name=event.event_name, show_alert=False))
+
+            remaining_events = db.get_active_reminders_by_user(session, user_id=event.user_id)
+            if remaining_events:
+                updated_keyword = create_cancellation_keyboard(remaining_events, page=0)
+                await callback.message.edit_reply_markup(reply_markup=updated_keyword)
+            else:
+                await callback.message.edit_text(
+                    self.deps.lm.get_string("reminders.no_active_reminders", event.user.language),
+                    reply_markup=get_main_buttons(self.deps.lm, event.user.language)
+                )
 
     async def handle_cancel_pagination(self, callback: CallbackQuery):
         """Handles next and back button clicks for the cancellation list"""
@@ -530,6 +525,8 @@ class BotHandlers:
                                      reply_markup=get_timezone_keyboard())
 
     async def handle_text_message(self, message: Message):
+        now_utc = datetime.now(pytz.utc)
+
         async with get_db_session(self.deps.session_factory) as session:
             user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
         if not user or not user.phone_number:
@@ -554,7 +551,7 @@ class BotHandlers:
         if json_response and json_response.get("status") == "success":
             try:
                 remind_time = datetime.strptime(f"{json_response['date']} {json_response['time']}", '%Y-%m-%d %H:%M:%S')
-                await self._process_and_schedule(user, message.chat.id, json_response, remind_time)
+                await self._process_and_schedule(user, message.chat.id, json_response, remind_time, now_utc)
             except (ValueError, TypeError, KeyError):
                 new_text = self.deps.lm.get_string("analysis.format_error", user.language)
                 if status_message != new_text:
@@ -565,6 +562,7 @@ class BotHandlers:
             await status_message.answer(self.deps.lm.get_string("analysis.unclear_request", user.language))
 
     async def handle_voice_message(self, message: Message):
+        now_utc = datetime.now(pytz.utc)
         async with get_db_session(self.deps.session_factory) as session:
             user = db.get_or_create_user(session, message.chat.id, message.from_user.first_name)
         if not user or not user.phone_number:
@@ -606,7 +604,7 @@ class BotHandlers:
 
                     await message.answer(response_text_confirmation,
                                          reply_markup=get_main_buttons(self.deps.lm, user.language))
-                    await self._process_and_schedule(user, message.chat.id, json_response, remind_time)
+                    await self._process_and_schedule(user, message.chat.id, json_response, remind_time, now_utc)
                 except (ValueError, TypeError, KeyError):
                     await status_message.edit_text(self.deps.lm.get_string("analysis.format_error", user.language))
             else:
