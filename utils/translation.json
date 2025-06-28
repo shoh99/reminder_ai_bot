@@ -82,6 +82,7 @@
       "ru": "Каждый"
     },
     "frequency": {
+      "minute": {"en": "minute", "uz": "daqiqada", "ru": "минуты"},
       "hour": { "en": "hour", "uz": "soat", "ru": "час" },
       "day": { "en": "day", "uz": "kun", "ru": "день" },
       "week": { "en": "week", "uz": "hafta", "ru": "неделя" },
@@ -193,9 +194,9 @@
       "ru": "Это напоминание, возможно, уже было отменено. ✅"
     },
     "cancellation_confirmation": {
-      "en": "✅ **Reminder Cancelled**\n\n📋 {event_name}",
-      "uz": "✅ **Eslatma Bekor Qilindi**\n\n📋 {event_name}",
-      "ru": "✅ **Напоминание отменено**\n\n📋 {event_name}"
+      "en": "✅Reminder Cancelled 📋 {event_name}",
+      "uz": "✅Eslatma Bekor Qilindi 📋 {event_name}",
+      "ru": "✅Напоминание отменено 📋 {event_name}"
     },
     "show_reminders_list": {
       "en": "Here are your reminders 👇",

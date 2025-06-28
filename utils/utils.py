@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 import pytz
-from dateutil.rrule import rrulestr, HOURLY, DAILY, WEEKLY, MONTHLY
+from dateutil.rrule import rrulestr, HOURLY, DAILY, WEEKLY, MONTHLY, MINUTELY
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ def create_human_readable_rule(rrule_str: str, start_time_local: datetime, lm, l
         day_map = {i: lm.get_string(f"human_readable_rule.days.{day_key}", lang) for i, day_key in
                    enumerate(day_map_keys)}
 
-        freq_keys_map = {HOURLY: "hour", DAILY: "day", WEEKLY: "week", MONTHLY: "month"}
+        freq_keys_map = {MINUTELY: 'minute', HOURLY: "hour", DAILY: "day", WEEKLY: "week", MONTHLY: "month"}
 
         # --- Build the rule string based on frequency ---
         rule_text = ""
