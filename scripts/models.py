@@ -1,7 +1,8 @@
 import uuid
 import logging
 
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Table, Index, UUID
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Table, Index, UUID, \
+    BigInteger
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.sql import func
 
@@ -24,7 +25,7 @@ class Users(Base):
     """
     __tablename__ = "users"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    chat_id = Column(Integer, unique=True, nullable=True, index=True)
+    chat_id = Column(BigInteger, unique=True, nullable=True, index=True)
     user_name = Column(String)
     timezone = Column(String, nullable=False, default='UTC')
     created_at = Column(DateTime, nullable=False, server_default=func.now())
