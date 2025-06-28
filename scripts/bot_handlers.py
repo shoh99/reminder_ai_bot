@@ -304,11 +304,11 @@ class BotHandlers:
             remind_time_local = user_tz.localize(remind_time_naive)
             # convert to utc for internal processing
             remind_time_utc = remind_time_local.astimezone(pytz.utc)
-            # if remind_time_utc <= now_utc:
-            #     await status_message.edit_text(
-            #         text=self.deps.lm.get_string("scheduling.past_time_error", user.language))
-            #     logging.warning(f"The time passed, user given time: {remind_time_utc} utc , now: {now_utc}")
-            #     return
+            if remind_time_utc <= now_utc:
+                await status_message.edit_text(
+                    text=self.deps.lm.get_string("scheduling.past_time_error", user.language))
+                logging.warning(f"The time passed, user given time: {remind_time_utc} utc , now: {now_utc}")
+                return
 
             if await self._scheduler_reminder(chat_id, user.id, user_tz, data, remind_time_utc):
                 display_time_str = remind_time_local.strftime('%Y/%m/%d %H:%M %Z')
@@ -463,8 +463,14 @@ class BotHandlers:
                 updated_keyword = create_cancellation_keyboard(remaining_events, page=0)
                 await callback.message.edit_reply_markup(reply_markup=updated_keyword)
             else:
-                await callback.message.edit_text(
-                    self.deps.lm.get_string("reminders.no_active_reminders", event.user.language),
+                try:
+                    await callback.message.delete()
+                except Exception as e:
+                    logging.error(f"Failed to delete message: {e}")
+
+                await self.deps.bot.send_message(
+                    chat_id=callback.message.chat.id,
+                    text=self.deps.lm.get_string("reminders.no_active_reminders", event.user.language),
                     reply_markup=get_main_buttons(self.deps.lm, event.user.language)
                 )
 
@@ -543,7 +549,7 @@ class BotHandlers:
         status_message = await message.reply(
             self.deps.lm.get_string("analysis.text_request_in_progress", user.language),
             reply_markup=get_main_buttons(self.deps.lm, user.language))
-        response_text = self.deps.ai_manager.analyze_text(message.text, user.timezone)
+        response_text = self.deps.ai_manager.analyze_text(message.text, user.timezone, user.language)
         json_response = convert_to_json(response_text)
 
         logging.info(f"AI response for {user.user_name}`s request: {json_response}")
@@ -582,7 +588,7 @@ class BotHandlers:
             file_path = os.path.join(temp_dir, f"{message.voice.file_id}.ogg")
             await self.deps.bot.download(message.voice, destination=file_path)
 
-            response_text = self.deps.ai_manager.analyze_audio(file_path, user.timezone)
+            response_text = self.deps.ai_manager.analyze_audio(file_path, user.timezone, user.language)
             json_response = convert_to_json(response_text)
 
             if json_response and json_response.get("status") == "success":
