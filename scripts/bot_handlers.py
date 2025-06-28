@@ -341,6 +341,8 @@ class BotHandlers:
             except Exception as e:
                 logging.error(f"Failed to get/create user: {e}")
                 await message.answer("Sorry, there was a error.")
+                return
+
             if not user.language:
                 await message.answer(
                     "Please select your language:\n\nTilni tanlang:\n\nВыберите ваш язык:",
