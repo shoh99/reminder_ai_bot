@@ -7,6 +7,7 @@ annotated-types==0.7.0
 anyio==4.9.0
 APScheduler==3.11.0
 async-timeout==5.0.1
+asyncpg==0.30.0
 attrs==25.3.0
 cachetools==5.5.2
 certifi==2025.6.15
@@ -29,6 +30,7 @@ multidict==6.4.4
 propcache==0.3.2
 proto-plus==1.26.1
 protobuf==6.31.1
+psycopg2-binary==2.9.10
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pydantic==2.10.6

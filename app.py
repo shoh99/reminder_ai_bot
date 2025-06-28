@@ -24,6 +24,14 @@ async def main():
 
     settings = Settings()
 
+    db_user = settings.db_user
+    db_password = settings.db_password
+    db_host = settings.db_host
+    db_port = settings.db_port
+    db_name = settings.db_name
+
+    db_url = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+
     shutdown_event = asyncio.Event()
 
     def signal_handler(signum, frame):
@@ -38,8 +46,8 @@ async def main():
     bot = None
 
     try:
-        create_database()
-        engine = create_engine(f"sqlite:///{settings.reminder_db_file}")
+        create_database(settings)
+        engine = create_engine(db_url)
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
         bot = Bot(token=settings.telegram_bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))

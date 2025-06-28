@@ -1,6 +1,6 @@
-import os
 import uuid
-from datetime import datetime
+import logging
+
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Table, Index, UUID
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.sql import func
@@ -105,25 +105,24 @@ class Tag(Base):
         return f"<Tag(id={self.id}, name='{self.name}')>"
 
 
-def create_database():
+def create_database(settings: Settings):
     """
     Initializes the database engine and creates all tables if they don't exist
     :return:
     """
-    settings = Settings()
-    db_filename = settings.reminder_db_file
-    engine = create_engine(f"sqlite:///{settings.reminder_db_file}", echo=True)
+    db_user = settings.db_user
+    db_password = settings.db_password
+    db_host = settings.db_host
+    db_port = settings.db_port
+    db_name = settings.db_name
 
-    print("Checking if database exists...")
-    if os.path.exists(db_filename):
-        print(f"Database {db_filename} already exists. Tables will be created if they don't exists")
-    else:
-        print(f"Creating new database: {db_filename}")
+    db_url = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
+    # Create the SQLAlchemy engine
+    engine = create_engine(db_url, echo=True)
+
+    logging.info(f"Connecting to PostgreSQL database: {db_url}")
     Base.metadata.create_all(engine)
 
-    print("Database setup complete. All tables are ready.")
+    logging.info("Database setup complete. All tables are ready in PostgreSQL.")
 
-
-if __name__ == "__main__":
-    create_database()
