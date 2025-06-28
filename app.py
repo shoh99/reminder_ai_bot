@@ -41,7 +41,7 @@ async def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    jobstores = {'default': SQLAlchemyJobStore(url=f'sqlite:///{settings.reminder_db_file}')}
+    jobstores = {'default': SQLAlchemyJobStore(url=db_url)}
     scheduler = AsyncIOScheduler(jobstores=jobstores, timezone=settings.timezone)
     bot = None
 
