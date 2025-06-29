@@ -6,7 +6,7 @@ import logging
 import pytz
 from scripts import database_crud as db
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from dateutil.rrule import rrulestr, MINUTELY, HOURLY, DAILY, WEEKLY, MONTHLY
 from aiogram import Bot, Dispatcher, F
@@ -21,7 +21,7 @@ from scripts.dependincies import BotDependencies
 from scripts.models import Users
 from utils.filters import TranslatedText
 from utils.language_manager import LanguageManager
-from utils.utils import convert_to_json, create_human_readable_rule, safe_timezone_convert
+from utils.utils import convert_to_json, create_human_readable_rule, safe_timezone_convert, adjust_datetime_if_needed
 
 SESSION_FACTORY = None
 ITEMS_PER_PAGE = 6
@@ -293,21 +293,56 @@ class BotHandlers:
             logging.error(f"Schedule failed: {e}")
             return False
 
-    async def _process_and_schedule(self, user: Users, chat_id: int, data: dict, remind_time_naive: datetime, now_utc: datetime):
+    async def _process_and_schedule(self, user: Users, chat_id: int, data: dict, remind_time_naive: datetime, now_utc: datetime, now_user_tz: datetime):
+        """Process and schedule a reminder/event
+        Args:
+            user: User object from database
+            chat_id: Telegram chat ID
+            data: Parsed data from AI response
+            remind_time_naive: Naive datetime from AI (assumed to be in user's timezone)
+            now_utc: Current time in UTC
+            now_user_tz: Current time in user's timezone
+        """
+
         status_message = await self.deps.bot.send_message(chat_id=chat_id, text=self.deps.lm.get_string(
             "scheduling.scheduling_in_progress",
             user.language)
                                                           )
         try:
             user_tz = pytz.timezone(user.timezone)
-            # localize the naive datetime to user's timezone
-            remind_time_local = user_tz.localize(remind_time_naive)
+
+            remind_time_naive = adjust_datetime_if_needed(remind_time_naive, now_user_tz)
+
+            try:
+                # localize the naive datetime to user's timezone
+                remind_time_local = user_tz.localize(remind_time_naive)
+            except pytz.AmbiguousTimeError:
+                # handle daylight saving the ambiguity - assume standard time
+                remind_time_local = user_tz.localize(remind_time_naive, is_dst=False)
+                logging.warning(f"Ambiguous time detected, assumed standard time: {remind_time_local}")
+            except pytz.NonExistentTimeError:
+                # handle dayligth saving time gap - move forward 1 hour
+                remind_time_naive_adjusted= remind_time_naive + timedelta(hours=1)
+                remind_time_local = user_tz.localize(remind_time_naive_adjusted)
+                logging.warning(f"Non-existing time detected, moved forward 1 hour: {remind_time_local}")
+
             # convert to utc for internal processing
             remind_time_utc = remind_time_local.astimezone(pytz.utc)
+            logging.info(f"Time processing for user {user.user_name}: "
+                         f"naive={remind_time_naive}, "
+                         f"local={remind_time_local}, "
+                         f"utc={remind_time_utc}, "
+                         f"now_utc={now_utc}")
+
             if remind_time_utc <= now_utc:
+                time_diff = now_utc - remind_time_utc
                 await status_message.edit_text(
                     text=self.deps.lm.get_string("scheduling.past_time_error", user.language))
-                logging.warning(f"The time passed, user given time: {remind_time_utc} utc , now: {now_utc}")
+                logging.warning(f"The time has passed for user {user.user_name}. "
+                                f"Requested time: {remind_time_local} (local) ,"
+                                f"{remind_time_utc} (UTC), "
+                                f"Current time: {now_utc} (UTC) "
+                                f"Time difference: {time_diff}")
                 return
 
             if await self._scheduler_reminder(chat_id, user.id, user_tz, data, remind_time_utc):
@@ -552,18 +587,22 @@ class BotHandlers:
                                  reply_markup=get_timezone_keyboard())
             return
 
+        user_tz = pytz.timezone(user.timezone)
+        now_user_tz = now_utc.astimezone(user_tz)
+
         status_message = await message.reply(
             self.deps.lm.get_string("analysis.text_request_in_progress", user.language),
             reply_markup=get_main_buttons(self.deps.lm, user.language))
+
         response_text = self.deps.ai_manager.analyze_text(message.text, user.timezone, user.language)
         json_response = convert_to_json(response_text)
 
-        logging.info(f"AI response for {user.user_name}`s request: {json_response}")
+        logging.info(f"AI response for {user.user_name}`s language: {user.language} request: {json_response}")
 
         if json_response and json_response.get("status") == "success":
             try:
                 remind_time = datetime.strptime(f"{json_response['date']} {json_response['time']}", '%Y-%m-%d %H:%M:%S')
-                await self._process_and_schedule(user, message.chat.id, json_response, remind_time, now_utc)
+                await self._process_and_schedule(user, message.chat.id, json_response, remind_time, now_utc, now_user_tz)
             except (ValueError, TypeError, KeyError):
                 new_text = self.deps.lm.get_string("analysis.format_error", user.language)
                 if status_message != new_text:
@@ -590,6 +629,9 @@ class BotHandlers:
         status_message = await message.reply(
             self.deps.lm.get_string("analysis.voice_request_in_progress", user.language))
 
+        user_tz = pytz.timezone(user.timezone)
+        now_user_tz = now_utc.astimezone(user_tz)
+
         with tempfile.TemporaryDirectory() as temp_dir:
             file_path = os.path.join(temp_dir, f"{message.voice.file_id}.ogg")
             await self.deps.bot.download(message.voice, destination=file_path)
@@ -597,6 +639,7 @@ class BotHandlers:
             response_text = self.deps.ai_manager.analyze_audio(file_path, user.timezone, user.language)
             json_response = convert_to_json(response_text)
 
+            logging.info(f"AI voice response for {user.user_name}'s language: {user.language} request: {json_response}")
             if json_response and json_response.get("status") == "success":
                 try:
                     transcript = json_response.get('transcript', 'Unavailable')
@@ -616,8 +659,9 @@ class BotHandlers:
 
                     await message.answer(response_text_confirmation,
                                          reply_markup=get_main_buttons(self.deps.lm, user.language))
-                    await self._process_and_schedule(user, message.chat.id, json_response, remind_time, now_utc)
-                except (ValueError, TypeError, KeyError):
+                    await self._process_and_schedule(user, message.chat.id, json_response, remind_time, now_utc, now_user_tz)
+                except (ValueError, TypeError, KeyError) as e:
+                    logging.error(f"Error parsing voice datetime: {e} , data: {json_response}")
                     await status_message.edit_text(self.deps.lm.get_string("analysis.format_error", user.language))
             else:
                 await status_message.edit_text(self.deps.lm.get_string("analysis.unclear_request", user.language))

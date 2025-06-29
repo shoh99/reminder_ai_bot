@@ -103,7 +103,7 @@
       "sunday": { "en": "Sunday", "uz": "Yakshanba", "ru": "Воскресенье" }
     },
     "weekly_days_pattern": {
-      "en": "Every {days}",
+      "en": "Every {days_of_week}",
       "uz": "Har {days_of_week}",
       "ru": "Каждую {days_of_week}"
     },
