@@ -5,5 +5,5 @@
 .env*
 reminder.db
 bot.log
-./credentials/
+credentials/
 test_**
