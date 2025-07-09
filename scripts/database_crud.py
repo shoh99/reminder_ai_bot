@@ -251,7 +251,7 @@ def create_full_event(session: Session, user_id: uuid.UUID, event_name: str,
         session.commit()
 
         logging.info(f"Created event {event_name} with job_id {job_id}")
-        return event
+        return event.id
 
     except Exception as e:
         logging.error(f"Error creating event {event_name}: {e}")
@@ -272,5 +272,149 @@ def delete_event(session: Session, event_id: uuid.UUID) -> bool:
 
     except Exception as e:
         logging.error(f"Error deleting event {event_id}: {e}")
+        session.rollback()
+        return False
+
+
+# Google Calendar token management
+def store_google_tokens(session: Session, chat_id: int, access_token: str, refresh_token: str, expires_at: datetime,
+                        calendar_id: str = None):
+    """Store encrypted Google Calendar tokens for a user"""
+    try:
+        from utils.encryption import encrypt_token
+
+        # Validate inputs
+        if not access_token:
+            logging.error("Access token is required but was empty")
+            return False
+
+        logging.debug(f"Attempting to store Google tokens for user {chat_id}")
+
+        stmt = select(Users).where(Users.chat_id == chat_id)
+        user = session.scalars(stmt).first()
+
+        if user:
+            # Encrypt tokens
+            encrypted_access_token = encrypt_token(access_token)
+            encrypted_refresh_token = encrypt_token(refresh_token) if refresh_token else None
+
+            user.google_access_token = encrypted_access_token
+            user.google_refresh_token = encrypted_refresh_token
+            user.google_token_expires_at = expires_at
+            user.google_calendar_id = calendar_id or 'primary'
+            session.commit()
+            logging.info(f"Google tokens stored successfully for user {chat_id}")
+            return True
+        else:
+            logging.error(f"User not found for chat_id {chat_id}")
+            return False
+
+    except ImportError as e:
+        logging.error(f"Failed to import encryption module: {e}")
+        return False
+    except ValueError as e:
+        logging.error(f"Encryption configuration error: {e}")
+        return False
+    except Exception as e:
+        logging.error(f"Error storing Google tokens for user {chat_id}: {e}")
+        session.rollback()
+        return False
+
+
+def get_google_tokens(session: Session, chat_id: int):
+    """Retrieve and decrypt Google Calendar tokens for a user"""
+    from utils.encryption import decrypt_token
+
+    try:
+        stmt = select(Users).where(Users.chat_id == chat_id)
+        user = session.scalars(stmt).first()
+
+        if user and user.google_access_token:
+            return {
+                'access_token': decrypt_token(user.google_access_token),
+                'refresh_token': decrypt_token(user.google_refresh_token) if user.google_refresh_token else None,
+                'expires_at': user.google_token_expires_at,
+                'calendar_id': user.google_calendar_id
+            }
+        return None
+
+    except Exception as e:
+        logging.error(f"Error retrieving Google tokens for user {chat_id}: {e}")
+        return None
+
+
+def update_google_access_token(session: Session, chat_id: int, new_access_token: str, expires_at: datetime):
+    """Update the access token when refreshed"""
+    from utils.encryption import encrypt_token
+
+    try:
+        stmt = select(Users).where(Users.chat_id == chat_id)
+        user = session.scalars(stmt).first()
+
+        if user:
+            user.google_access_token = encrypt_token(new_access_token)
+            user.google_token_expires_at = expires_at
+            session.commit()
+            return True
+        return False
+
+    except Exception as e:
+        logging.error(f"Error updating Google access token for user {chat_id}: {e}")
+        session.rollback()
+        return False
+
+
+def remove_google_tokens(session: Session, chat_id: int):
+    """Remove Google Calendar tokens (when user disconnects)"""
+    try:
+        stmt = select(Users).where(Users.chat_id == chat_id)
+        user = session.scalars(stmt).first()
+
+        if user:
+            user.google_access_token = None
+            user.google_refresh_token = None
+            user.google_token_expires_at = None
+            user.google_calendar_id = None
+            session.commit()
+            logging.info(f"Google tokens removed for user {chat_id}")
+            return True
+        return False
+
+    except Exception as e:
+        logging.error(f"Error removing Google tokens for user {chat_id}: {e}")
+        session.rollback()
+        return False
+
+
+def is_google_calendar_connected(session: Session, chat_id: int) -> bool:
+    """Check if user has Google Calendar connected"""
+    try:
+        stmt = select(Users).where(Users.chat_id == chat_id)
+        user = session.scalars(stmt).first()
+
+        return user and user.google_access_token is not None
+
+    except Exception as e:
+        logging.error(f"Error checking Google Calendar connection for user {chat_id}: {e}")
+        return False
+
+
+def add_google_event_id_to_events(session: Session, event_id: uuid.UUID, google_event_id: str):
+    try:
+        # Select the full Event object, not just the id
+        stmt = select(Event).where(Event.id == event_id)
+        event = session.scalars(stmt).first()
+
+        if event:
+            event.google_event_id = google_event_id
+            session.commit()
+            logging.info(f"Added google event id {google_event_id} to event: {event_id}")
+            return True
+        else:
+            logging.warning(f"Event with id {event_id} not found")
+            return False
+
+    except Exception as e:
+        logging.error(f"Error adding google event id to event {event_id}: {e}")
         session.rollback()
         return False

@@ -11,11 +11,11 @@ from sqlalchemy.orm import sessionmaker
 
 from services.ai_services import AIManager
 from scripts.bot_handlers import register_handlers
-from scripts.dependincies import BotDependencies  # <-- Import from the new file
+from scripts.dependincies import BotDependencies  
 from utils.language_manager import LanguageManager
 from utils.logger import setup_logging
 from scripts.models import create_database
-from config.settings import Settings  # Use the settings instance you created
+from config.settings import Settings 
 
 
 async def main():

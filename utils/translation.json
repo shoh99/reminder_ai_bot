@@ -51,6 +51,37 @@
       "en": "🌐 Change Language",
       "ru": "🌐 Изменить язык",
       "uz": "🌐 Tilni o'zgartirish"
+    },
+    "change_timezone": {
+      "en": "🌏Change timezone",
+      "ru": "🌏Изменить часовой пояс",
+      "uz": "🌏Vaqt mintaqani o'zgartirish"
+    },
+    "sync_google_calendar": {
+      "en": "📅 Sync with Google Calendar",
+      "uz": "📅 Google Calendar bilan sinxronlash",
+      "ru": "📅 Синхронизация с Google Calendar"
+    },
+    "authenticate_google": {
+      "en": "🔗 Connect to Google",
+      "uz": "🔗 Google'ga ulash",
+      "ru": "🔗 Подключить Google"
+    },
+    "back_to_settings": {
+      "en": "⬅️ Back to Settings",
+      "uz": "⬅️ Sozlamalarga qaytish",
+      "ru": "⬅️ Назад к настройкам"
+    },
+    "settings": {
+      "en": "⚙️ Settings",
+      "uz": "⚙️ Sozlamalar",
+      "ru": "⚙️ Настройки",
+      
+      "settings_menu": {
+        "en": "Settings menu:",
+        "uz": "Sozlamalar menyusi:",
+        "ru": "Меню настроек:"
+      }
     }
   },
   "setup": {
@@ -229,6 +260,50 @@
       "en": "<b>Got it! Here's what I heard:</b>\n\n🗣 <b>Transcript:</b> “<i>{transcript}</i>”\n\n📝 <b>Event:</b> {event}\n📅 <b>Date:</b> {date}\n⏰ <b>Time:</b> {time}",
       "uz": "<b>Tushunarli! Men eshitganlarim:</b>\n\n🗣 <b>Matn:</b> “<i>{transcript}</i>”\n\n📝 <b>Hodisa:</b> {event}\n📅 <b>Sana:</b> {date}\n⏰ <b>Vaqt:</b> {time}",
       "ru": "<b>Понял! Вот что я расслышал:</b>\n\n🗣 <b>Транскрипция:</b> «<i>{transcript}</i>»\n\n📝 <b>Событие:</b> {event}\n📅 <b>Дата:</b> {date}\n⏰ <b>Время:</b> {time}"
+    }
+  },
+  "settings": {
+    "google_calendar_sync": {
+      "en": "🔗 Connect your Google Calendar to automatically sync your reminders!\n\nClick the button below to authenticate with your Google account. After connecting, all future reminders will be automatically added to your Google Calendar.",
+      "uz": "🔗 Eslatmalaringizni avtomatik sinxronlash uchun Google Calendar ni ulang!\n\nGoogle hisobingiz bilan autentifikatsiya qilish uchun quyidagi tugmani bosing. Ulanganidan keyin, barcha kelajakdagi eslatmalar avtomatik ravishda Google Calendar ga qo'shiladi.",
+      "ru": "🔗 Подключите Google Calendar для автоматической синхронизации напоминаний!\n\nНажмите кнопку ниже для аутентификации с вашим аккаунтом Google. После подключения все будущие напоминания будут автоматически добавляться в ваш Google Calendar."
+    },
+    "settings_menu": {
+      "en": "Settings menu:",
+      "uz": "Sozlamalar menyusi:",
+      "ru": "Меню настроек:"
+    }
+  },
+  "google_calendar": {
+    "event_created": {
+      "en": "📅 Event also created in Google Calendar!",
+      "uz": "📅 Tadbir Google Calendar da ham yaratildi!",
+      "ru": "📅 Событие также создано в Google Calendar!"
+    },
+    "recurring_event_created": {
+      "en": "📅 Recurring event series created in Google Calendar!",
+      "uz": "📅 Takrorlanadigan tadbirlar seriyasi Google Calendar da yaratildi!",
+      "ru": "📅 Серия повторяющихся событий создана в Google Calendar!"
+    },
+    "sync_enabled": {
+      "en": "✅ Google Calendar sync is enabled. Your reminders will be automatically added to your calendar.",
+      "uz": "✅ Google Calendar sinxronlashuvi yoqilgan. Eslatmalaringiz avtomatik ravishda kalendaringizga qo'shiladi.",
+      "ru": "✅ Синхронизация с Google Calendar включена. Ваши напоминания будут автоматически добавляться в календарь."
+    },
+    "already_connected": {
+      "en": "✅ Google Calendar is already connected!\n\nYour future reminders will be automatically synced to your Google Calendar.",
+      "uz": "✅ Google Calendar allaqachon ulangan!\n\nKelajakdagi eslatmalaringiz avtomatik ravishda Google Calendar ga sinxronlanadi.",
+      "ru": "✅ Google Calendar уже подключен!\n\nВаши будущие напоминания будут автоматически синхронизированы с Google Calendar."
+    },
+    "disconnect_button": {
+      "en": "🔓 Disconnect Google Calendar",
+      "uz": "🔓 Google Calendar ni uzish",
+      "ru": "🔓 Отключить Google Calendar"
+    },
+    "disconnected": {
+      "en": "🔓 Google Calendar has been disconnected. Future reminders will not be synced.",
+      "uz": "🔓 Google Calendar uzilib qoldi. Kelajakdagi eslatmalar sinxronlanmaydi.",
+      "ru": "🔓 Google Calendar отключен. Будущие напоминания не будут синхронизироваться."
     }
   },
   "errors": {

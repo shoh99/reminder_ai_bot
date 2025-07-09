@@ -4,7 +4,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 
-env_path = Path(__file__).parent.parent / '.env'
+env_path = Path(__file__).parent.parent / '.env.local'
 
 
 class Settings(BaseSettings):
@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     db_host: str = Field(..., description="Database host address.")
     db_port: str = Field(..., description="Database port")
     db_name: str = Field(..., description="Database name")
+
+    #encryption token
+    token_encryption_key: str = Field(..., description="Token Encryption Key (IMPORTANT: Use a strong, unique key)")
 
     # Settings with default values
     reminder_db_file: str = '../remindme_ai.sqlite'

@@ -6,7 +6,7 @@ import logging
 import pytz
 from scripts import database_crud as db
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time, date
 from contextlib import asynccontextmanager
 from dateutil.rrule import rrulestr, MINUTELY, HOURLY, DAILY, WEEKLY, MONTHLY
 from aiogram import Bot, Dispatcher, F
@@ -17,8 +17,10 @@ from aiogram.client.bot import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from sqlalchemy.orm import sessionmaker, Session
+
+from scripts.database_crud import add_google_event_id_to_events
 from scripts.dependincies import BotDependencies
-from scripts.models import Users
+from scripts.models import Users, Event
 from utils.filters import TranslatedText
 from utils.language_manager import LanguageManager
 from utils.utils import convert_to_json, create_human_readable_rule, safe_timezone_convert, adjust_datetime_if_needed
@@ -57,10 +59,19 @@ def get_main_buttons(lm: LanguageManager, lang: str):
     builder = ReplyKeyboardBuilder()
     builder.button(text=lm.get_string("buttons.list_reminders", lang))
     builder.button(text=lm.get_string("buttons.cancel_reminders", lang))
-    builder.button(text=lm.get_string("buttons.help", lang))
-    builder.button(text=lm.get_string("buttons.change_language", lang))
-    builder.adjust(2, 2)
+    builder.button(text=lm.get_string("buttons.settings", lang))
+    builder.adjust(2, 1)
     return builder.as_markup(resize_keyboard=True)
+
+def get_settings_inline_buttons(lm: LanguageManager, lang: str):
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text=lm.get_string("buttons.change_language", lang), callback_data="settings_change_language"),
+        InlineKeyboardButton(text=lm.get_string("buttons.change_timezone", lang), callback_data="settings_change_timezone"),
+        InlineKeyboardButton(text=lm.get_string("buttons.sync_google_calendar", lang), callback_data="settings_sync_google_calendar")
+    )
+    builder.adjust(1)
+    return builder.as_markup()
 
 
 def get_burger_menu_keyboard():
@@ -209,7 +220,7 @@ class BotHandlers:
         self.deps = deps
 
     async def _scheduler_reminder(self, chat_id: int, user_id: uuid.UUID, user_timezone: pytz, data: dict,
-                                  reminder_time_utc: datetime) -> bool:
+                                  reminder_time_utc: datetime) -> dict:
         """Schedules a job and saves it to the db. Fixed to use direct function reference."""
         try:
             job_id = str(uuid.uuid4())
@@ -281,17 +292,17 @@ class BotHandlers:
 
             async with get_db_session(self.deps.session_factory) as session:
                 tags = db.get_or_create_tags(session, data.get("tags", []))
-                db.create_full_event(
+                event_id = db.create_full_event(
                     session, user_id, data.get("event_name", "Untitled Event"),
                     data.get("event_description", "No details provided."),
                     reminder_time_utc, job_id, data.get("type"),
                     data.get("rrule"), tags
                 )
-            logging.info(f"Scheduled job {job_id} and saved to db")
-            return True
+                logging.info(f"Scheduled job {job_id} and saved to db")
+                return {'status': True, 'event_id': event_id}
         except Exception as e:
             logging.error(f"Schedule failed: {e}")
-            return False
+            return {'status': False, 'event_id': None}
 
     async def _process_and_schedule(self, user: Users, chat_id: int, data: dict, remind_time_naive: datetime, now_utc: datetime, now_user_tz: datetime):
         """Process and schedule a reminder/event
@@ -345,7 +356,8 @@ class BotHandlers:
                                 f"Time difference: {time_diff}")
                 return
 
-            if await self._scheduler_reminder(chat_id, user.id, user_tz, data, remind_time_utc):
+            response = await self._scheduler_reminder(chat_id, user.id, user_tz, data, remind_time_utc)
+            if response['status']:
                 display_time_str = remind_time_local.strftime('%Y/%m/%d %H:%M %Z')
                 if data.get("rrule"):
                     schedule_text = create_human_readable_rule(data["rrule"], remind_time_local, self.deps.lm,
@@ -361,12 +373,137 @@ class BotHandlers:
                     schedule_text=schedule_text
                 )
 
+                # Check if user has Google Calendar connected and create event
+                await self._create_google_calendar_event_if_connected(chat_id, data, remind_time_local, user_tz, user.language, response['event_id'])
+
                 await status_message.edit_text(text=confirmation_message)
             else:
                 await status_message.edit_text(text=self.deps.lm.get_string("scheduling.schedule_error", user.language))
         except Exception as e:
             logging.error(f"Error at processing and scheduling job: {e}")
             await status_message.edit_text(text=self.deps.lm.get_string("scheduling.unexpected_error", user.language))
+
+    async def _create_google_calendar_event_if_connected(self, chat_id: int, data: dict, remind_time_local: datetime, user_tz: pytz.timezone, user_language: str, event_id):
+        """Create Google Calendar event if user has Google Calendar connected"""
+        try:
+            async with get_db_session(self.deps.session_factory) as session:
+                # Check if user has Google Calendar connected
+                if not db.is_google_calendar_connected(session, chat_id):
+                    return
+                
+                # Get user's Google Calendar tokens
+                tokens = db.get_google_tokens(session, chat_id)
+                if not tokens:
+                    return
+                
+                access_token = tokens['access_token']
+                
+                # Check if token needs refresh
+                try:
+                    # Ensure both datetimes are timezone-aware for comparison
+                    current_time = datetime.now(pytz.utc)
+                    token_expires = tokens['expires_at']
+                    
+                    # Handle both datetime and date objects
+                    if token_expires:
+                        # Check if it's a date object (not datetime)
+                        if isinstance(token_expires, date) and not isinstance(token_expires, datetime):
+                            # It's a date object, convert to datetime at start of day
+                            token_expires = datetime.combine(token_expires, time.min)
+                        
+                        # Convert token_expires to timezone-aware UTC if it's naive
+                        if not hasattr(token_expires, 'tzinfo') or token_expires.tzinfo is None:
+                            token_expires = pytz.utc.localize(token_expires)
+                        elif token_expires.tzinfo != pytz.utc:
+                            token_expires = token_expires.astimezone(pytz.utc)
+                    
+                    if token_expires and current_time >= token_expires:
+                        # Token expired, try to refresh
+                        from services.g_calendar import refresh_access_token, get_oauth_client_config
+                        
+                        oauth_config = get_oauth_client_config()
+                        if oauth_config and tokens['refresh_token']:
+                            refresh_result = refresh_access_token(
+                                tokens['refresh_token'],
+                                oauth_config['client_id'],
+                                oauth_config['client_secret']
+                            )
+                            
+                            if refresh_result:
+                                # Update the access token in database
+                                db.update_google_access_token(
+                                    session, 
+                                    chat_id, 
+                                    refresh_result['access_token'], 
+                                    refresh_result['expires_at']
+                                )
+                                access_token = refresh_result['access_token']
+                                logging.info(f"Successfully refreshed Google Calendar token for user {chat_id}")
+                            else:
+                                logging.error(f"Failed to refresh Google Calendar token for user {chat_id}")
+                                return
+                        else:
+                            logging.warning(f"Cannot refresh Google Calendar token for user {chat_id} - missing refresh token or client config")
+                            return
+                
+                except Exception as datetime_error:
+                    logging.error(f"Error checking token expiration for user {chat_id}: {datetime_error}")
+                    # Continue with existing token if there's a datetime comparison error
+                    pass
+                
+                # Prepare event data
+                event_name = data.get('event_name', 'Reminder')
+                event_description = data.get('event_description', 'Scheduled reminder from ReminderBot')
+                event_type = data.get('type', 'one_time')
+                rrule = data.get('rrule') if event_type == 'recurring' else None
+                
+                # Set end time (15 minutes after start for reminders)
+                end_time_local = remind_time_local + timedelta(minutes=15)
+                
+                # Create the calendar event
+                from services.g_calendar import create_calendar_event, get_oauth_client_config
+                
+                # Get OAuth config for credentials
+                oauth_config = get_oauth_client_config()
+                
+                result = create_calendar_event(
+                    access_token=access_token,
+                    event_name=event_name,
+                    event_description=event_description,
+                    start_time=remind_time_local,
+                    end_time=end_time_local,
+                    timezone_str=str(user_tz),
+                    rrule=rrule,
+                    refresh_token=tokens.get('refresh_token'),
+                    client_id=oauth_config.get('client_id') if oauth_config else None,
+                    client_secret=oauth_config.get('client_secret') if oauth_config else None
+                )
+                
+                if result['success']:
+                    logging.info(f"Successfully created Google Calendar event for user {chat_id}: {result['event_id']}")
+                    # Send confirmation message to user
+                    try:
+                        if result.get('is_recurring', False):
+                            confirmation_text = self.deps.lm.get_string("google_calendar.recurring_event_created", user_language)
+                        else:
+                            confirmation_text = self.deps.lm.get_string("google_calendar.event_created", user_language)
+                        
+                        await self.deps.bot.send_message(
+                            chat_id=chat_id,
+                            text=confirmation_text
+                        )
+
+                        async with get_db_session(self.deps.session_factory) as session:
+                            add_google_event_id_to_events(session, event_id, result['event_id'])
+
+                    except Exception as e:
+                        logging.error(f"Failed to send Google Calendar confirmation message: {e}")
+                else:
+                    logging.error(f"Failed to create Google Calendar event for user {chat_id}: {result.get('error')}")
+                    
+        except Exception as e:
+            logging.error(f"Error creating Google Calendar event for user {chat_id}: {e}")
+            # Don't let Google Calendar errors break the reminder scheduling
 
     # --- Message and Callback Handlers as class methods ---
     async def start(self, message: Message):
@@ -531,13 +668,136 @@ class BotHandlers:
         await callback.message.edit_text(text=new_text, reply_markup=new_keyboard, parse_mode='Markdown')
         await callback.answer()
 
-    async def change_language(self, message: Message):
+    async def settings(self, message: Message):
         chat_id = message.chat.id
         async with get_db_session(self.deps.session_factory) as session:
             user = db.get_or_create_user(session, chat_id, message.from_user.first_name)
+            await message.answer(
+                self.deps.lm.get_string("settings.settings_menu", user.language),
+                reply_markup=get_settings_inline_buttons(self.deps.lm, user.language)
+            )
 
-            await message.answer(text=self.deps.lm.get_string("setup.ask_language", user.language),
-                                 reply_markup=get_language_keyboard())
+    async def settings_change_language_callback(self, callback: CallbackQuery):
+        """Handle inline button click for changing language in settings"""
+        chat_id = callback.message.chat.id
+        async with get_db_session(self.deps.session_factory) as session:
+            user = db.get_or_create_user(session, chat_id, callback.from_user.first_name)
+            
+        await callback.message.edit_text(
+            text=self.deps.lm.get_string("setup.ask_language", user.language),
+            reply_markup=get_language_keyboard()
+        )
+        await callback.answer()
+
+    async def settings_change_timezone_callback(self, callback: CallbackQuery):
+        """Handle inline button click for changing timezone in settings"""
+        chat_id = callback.message.chat.id
+        async with get_db_session(self.deps.session_factory) as session:
+            user = db.get_or_create_user(session, chat_id, callback.from_user.first_name)
+            
+        await callback.message.edit_text(
+            text=self.deps.lm.get_string("setup.request_timezone", user.language),
+            reply_markup=get_timezone_keyboard()
+        )
+        await callback.answer()
+
+    async def settings_sync_google_calendar_callback(self, callback: CallbackQuery):
+        """Handle inline button click for Google Calendar sync"""
+        chat_id = callback.message.chat.id
+        async with get_db_session(self.deps.session_factory) as session:
+            user = db.get_or_create_user(session, chat_id, callback.from_user.first_name)
+            
+            # Check if user is already connected to Google Calendar
+            is_connected = db.is_google_calendar_connected(session, chat_id)
+            
+            if is_connected:
+                # User is already connected - show disconnect option
+                disconnect_builder = InlineKeyboardBuilder()
+                disconnect_builder.add(
+                    InlineKeyboardButton(
+                        text=self.deps.lm.get_string("google_calendar.disconnect_button", user.language), 
+                        callback_data="disconnect_google_calendar"
+                    ),
+                    InlineKeyboardButton(
+                        text=self.deps.lm.get_string("buttons.back_to_settings", user.language), 
+                        callback_data="back_to_settings"
+                    )
+                )
+                disconnect_builder.adjust(1)
+                
+                await callback.message.edit_text(
+                    text=self.deps.lm.get_string("google_calendar.already_connected", user.language),
+                    reply_markup=disconnect_builder.as_markup()
+                )
+            else:
+                # User needs to connect - generate auth URL
+                from services.g_calendar import get_google_auth_url
+                auth_url = get_google_auth_url(str(chat_id))
+                
+                # Create inline keyboard with authentication link
+                auth_builder = InlineKeyboardBuilder()
+                auth_builder.add(
+                    InlineKeyboardButton(
+                        text=self.deps.lm.get_string("buttons.authenticate_google", user.language), 
+                        url=auth_url
+                    ),
+                    InlineKeyboardButton(
+                        text=self.deps.lm.get_string("buttons.back_to_settings", user.language), 
+                        callback_data="back_to_settings"
+                    )
+                )
+                auth_builder.adjust(1)
+                
+                await callback.message.edit_text(
+                    text=self.deps.lm.get_string("settings.google_calendar_sync", user.language),
+                    reply_markup=auth_builder.as_markup()
+                )
+                
+        await callback.answer()
+
+    async def back_to_settings_callback(self, callback: CallbackQuery):
+        """Handle back to settings button"""
+        chat_id = callback.message.chat.id
+        async with get_db_session(self.deps.session_factory) as session:
+            user = db.get_or_create_user(session, chat_id, callback.from_user.first_name)
+            
+        await callback.message.edit_text(
+            text=self.deps.lm.get_string("settings.settings_menu", user.language),
+            reply_markup=get_settings_inline_buttons(self.deps.lm, user.language)
+        )
+        await callback.answer()
+
+    async def disconnect_google_calendar_callback(self, callback: CallbackQuery):
+        """Handle disconnecting Google Calendar"""
+        chat_id = callback.message.chat.id
+        async with get_db_session(self.deps.session_factory) as session:
+            user = db.get_or_create_user(session, chat_id, callback.from_user.first_name)
+            
+            # Remove Google Calendar tokens
+            success = db.remove_google_tokens(session, chat_id)
+            
+            if success:
+                await callback.message.edit_text(
+                    text=self.deps.lm.get_string("google_calendar.disconnected", user.language),
+                    reply_markup=InlineKeyboardBuilder().add(
+                        InlineKeyboardButton(
+                            text=self.deps.lm.get_string("buttons.back_to_settings", user.language), 
+                            callback_data="back_to_settings"
+                        )
+                    ).as_markup()
+                )
+            else:
+                await callback.message.edit_text(
+                    text="❌ Failed to disconnect Google Calendar. Please try again.",
+                    reply_markup=InlineKeyboardBuilder().add(
+                        InlineKeyboardButton(
+                            text=self.deps.lm.get_string("buttons.back_to_settings", user.language), 
+                            callback_data="back_to_settings"
+                        )
+                    ).as_markup()
+                )
+                
+        await callback.answer()
 
     async def select_langauge(self, callback: CallbackQuery):
         lang_code = callback.data.split("_")[2]
@@ -682,7 +942,7 @@ def register_handlers(dp: Dispatcher, deps: BotDependencies, lm: LanguageManager
     dp.message.register(handlers.list_reminders, TranslatedText(lm, "buttons.list_reminders"))
     dp.message.register(handlers.cancel_reminders_list, Command("cancel"))
     dp.message.register(handlers.cancel_reminders_list, TranslatedText(lm, "buttons.cancel_reminders"))
-    dp.message.register(handlers.change_language, TranslatedText(lm, "buttons.change_language"))
+    dp.message.register(handlers.settings, TranslatedText(lm, "buttons.settings"))
     dp.message.register(handlers.get_user_contact, F.contact)
     dp.message.register(handlers.handle_text_message, F.text)
     dp.message.register(handlers.handle_voice_message, F.voice)
@@ -691,3 +951,9 @@ def register_handlers(dp: Dispatcher, deps: BotDependencies, lm: LanguageManager
     dp.callback_query.register(handlers.handle_cancel_pagination, F.data.startswith("page_cancel"))
     dp.callback_query.register(handlers.select_timezone, F.data.startswith("tz_"))
     dp.callback_query.register(handlers.select_langauge, F.data.startswith("set_lang"))
+    dp.callback_query.register(handlers.settings_change_language_callback, F.data == "settings_change_language")
+    dp.callback_query.register(handlers.settings_change_timezone_callback, F.data == "settings_change_timezone")
+    dp.callback_query.register(handlers.settings_sync_google_calendar_callback, F.data == "settings_sync_google_calendar")
+    dp.callback_query.register(handlers.disconnect_google_calendar_callback, F.data == "disconnect_google_calendar")
+    dp.callback_query.register(handlers.back_to_settings_callback, F.data == "back_to_settings")
+    dp.callback_query.register(handlers.disconnect_google_calendar_callback, F.data == "disconnect_google_calendar")

@@ -31,6 +31,11 @@ class Users(Base):
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     phone_number = Column(String)
     language = Column(String)
+    # Google Calendar integration fields (encrypted)
+    google_access_token = Column(Text, nullable=True)  # Encrypted access token
+    google_refresh_token = Column(Text, nullable=True)  # Encrypted refresh token
+    google_calendar_id = Column(String, nullable=True)  # Primary calendar ID
+    google_token_expires_at = Column(DateTime, nullable=True)  # Token expiration time
     events = relationship("Event", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
@@ -54,6 +59,7 @@ class Event(Base):
 
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    google_event_id = Column(String)
 
     user = relationship("Users", back_populates="events")
     schedule = relationship(
