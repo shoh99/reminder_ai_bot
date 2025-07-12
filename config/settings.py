@@ -4,7 +4,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 
-env_path = Path(__file__).parent.parent / '.env.local'
+env_path = Path(__file__).parent.parent / '.env'
 
 
 class Settings(BaseSettings):
