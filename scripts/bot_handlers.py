@@ -732,7 +732,7 @@ class BotHandlers:
             else:
                 # User needs to connect - generate auth URL
                 from services.g_calendar import get_google_auth_url
-                auth_url = get_google_auth_url(str(chat_id))
+                auth_url = get_google_auth_url(str(chat_id), user.language)
                 
                 # Create inline keyboard with authentication link
                 auth_builder = InlineKeyboardBuilder()

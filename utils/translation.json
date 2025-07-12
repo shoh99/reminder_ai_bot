@@ -312,5 +312,87 @@
       "uz": "⚠️ Kechirasiz, xatolik yuz berdi. Iltimos, qaytadan urining.",
       "ru": "⚠️ Извините, что-то пошло не так. Пожалуйста, попробуйте еще раз."
     }
+  },
+  "web": {
+    "success_title": {
+      "en": "🎉 Successfully Connected!",
+      "uz": "🎉 Muvaffaqiyatli ulandi!",
+      "ru": "🎉 Успешно подключено!"
+    },
+    "success_subtitle": {
+      "en": "Google Calendar Connected!",
+      "uz": "Google Calendar ulandi!",
+      "ru": "Google Calendar подключен!"
+    },
+    "success_message": {
+      "en": "Your Google Calendar has been connected to the PlanAI Bot. All your future reminders will now be automatically synced to your calendar!",
+      "uz": "Google Calendar PlanAI Bot ga ulandi. Barcha kelajakdagi eslatmalaringiz avtomatik ravishda kalendaringizga sinxronlanadi!",
+      "ru": "Ваш Google Calendar подключен к PlanAI Bot. Все ваши будущие напоминания теперь будут автоматически синхронизироваться с календарем!"
+    },
+    "what_next": {
+      "en": "📅 What happens next?",
+      "uz": "📅 Endi nima bo'ladi?",
+      "ru": "📅 Что происходит дальше?"
+    },
+    "feature_calendar_sync": {
+      "en": "Future reminders will appear in Google Calendar",
+      "uz": "Kelajakdagi eslatmalar Google Calendar da ko'rinadi",
+      "ru": "Будущие напоминания появятся в Google Calendar"
+    },
+    "feature_recurring": {
+      "en": "Recurring events will be created automatically",
+      "uz": "Takrorlanadigan tadbirlar avtomatik yaratiladi",
+      "ru": "Повторяющиеся события будут создаваться автоматически"
+    },
+    "feature_manage_both": {
+      "en": "You can manage reminders from both the bot and calendar",
+      "uz": "Eslatmalarni bot va kalendardan boshqarishingiz mumkin",
+      "ru": "Вы можете управлять напоминаниями как из бота, так и из календаря"
+    },
+    "feature_real_time": {
+      "en": "Changes sync in real-time",
+      "uz": "O'zgarishlar real vaqtda sinxronlanadi",
+      "ru": "Изменения синхронизируются в реальном времени"
+    },
+    "return_to_bot": {
+      "en": "You can now close this window and return to the Telegram bot to continue.",
+      "uz": "Endi bu oynani yopib, davom etish uchun Telegram botga qaytishingiz mumkin.",
+      "ru": "Теперь вы можете закрыть это окно и вернуться к Telegram-боту для продолжения."
+    },
+    "close_window": {
+      "en": "Close Window",
+      "uz": "Oynani yopish",
+      "ru": "Закрыть окно"
+    },
+    "auto_close_confirm": {
+      "en": "Auto-close window? Click OK to close or Cancel to keep open.",
+      "uz": "Oynani avtomatik yopish? Yopish uchun OK, ochiq qoldirish uchun Bekor qilish tugmasini bosing.",
+      "ru": "Автоматически закрыть окно? Нажмите OK для закрытия или Отмена, чтобы оставить открытым."
+    },
+    "error_title": {
+      "en": "😔 Connection Failed",
+      "uz": "😔 Ulanish muvaffaqiyatsiz",
+      "ru": "😔 Подключение не удалось"
+    },
+    "error_subtitle": {
+      "en": "Connection Failed",
+      "uz": "Ulanish muvaffaqiyatsiz",
+      "ru": "Подключение не удалось"
+    },
+    "error_message": {
+      "en": "We couldn't connect your Google Calendar to the PlanAI Bot. Please try again or contact support if the issue persists.",
+      "uz": "Google Calendar ni PlanAI Bot ga ulay olmadik. Iltimos, qaytadan urinib ko'ring yoki muammo davom etsa, qo'llab-quvvatlash xizmatiga murojaat qiling.",
+      "ru": "Мы не смогли подключить ваш Google Calendar к PlanAI Bot. Пожалуйста, попробуйте еще раз или обратитесь в службу поддержки, если проблема не исчезнет."
+    },
+    "error_details": {
+      "en": "Error details:",
+      "uz": "Xatolik tafsilotlari:",
+      "ru": "Подробности ошибки:"
+    },
+    "try_again": {
+      "en": "Try Again",
+      "uz": "Qaytadan urining",
+      "ru": "Попробовать снова"
+    }
   }
 }

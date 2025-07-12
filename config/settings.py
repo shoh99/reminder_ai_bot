@@ -22,12 +22,15 @@ class Settings(BaseSettings):
     db_host: str = Field(..., description="Database host address.")
     db_port: str = Field(..., description="Database port")
     db_name: str = Field(..., description="Database name")
+    google_client_id: str = Field(..., description="Google client id")
+    google_client_secret: str = Field(..., description="Google client secret")
+    web_server_host: str = Field(..., description="Web server host uri")
+    web_server_port: str = Field(..., description="web server port")
 
     #encryption token
     token_encryption_key: str = Field(..., description="Token Encryption Key (IMPORTANT: Use a strong, unique key)")
 
     # Settings with default values
-    reminder_db_file: str = '../remindme_ai.sqlite'
     timezone: str = "UTC"
     log_level: str = "INFO"
 

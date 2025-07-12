@@ -11,22 +11,40 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google_auth_oauthlib.flow import Flow
 
+from config.settings import Settings
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
-REDIRECT_URI = "http://localhost:8080/oath2callback"
+settings = Settings()
+
+SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+REDIRECT = settings.web_server_host
+REDIRECT_URI = f"{settings.web_server_host}:{settings.web_server_port}"
+
+client_config = {
+    "web": {
+        "client_id": settings.google_client_id,
+        "project_id": "reminder-ai-bot", "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_secret": settings.google_client_secret,
+        "redirect_uris": [REDIRECT_URI]
+    }
+}
 
 
-def get_google_auth_url(chat_id: str):
-    flow = Flow.from_client_secrets_file(
-        "/Users/shokhruh/projects/reminder-ai-bot/credentials/client_secret_web_credentials.json",
+def get_google_auth_url(chat_id: str, language: str = 'en'):
+    flow = Flow.from_client_config(
+        client_config=client_config,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
 
+    # Combine chat_id and language in state parameter
+    state_data = f"{chat_id}|{language}"
+
     auth_url, _ = flow.authorization_url(
         access_type='offline',
         prompt="consent",
-        state=chat_id
+        state=state_data
     )
     print(auth_url)
 
@@ -36,8 +54,8 @@ def get_google_auth_url(chat_id: str):
 def exchange_code_for_tokens(code: str):
     """Exchange authorization code for access and refresh tokens"""
     try:
-        flow = Flow.from_client_secrets_file(
-            "/Users/shokhruh/projects/reminder-ai-bot/credentials/client_secret_web_credentials.json",
+        flow = Flow.from_client_config(
+            client_config=client_config,
             scopes=SCOPES,
             redirect_uri=REDIRECT_URI
         )
@@ -96,7 +114,7 @@ def refresh_access_token(refresh_token: str, client_id: str, client_secret: str)
 
 
 def create_calendar_event(access_token: str, event_name: str, event_description: str, start_time: datetime,
-                          end_time: datetime = None, timezone_str: str = 'UTC', rrule: str = None, 
+                          end_time: datetime = None, timezone_str: str = 'UTC', rrule: str = None,
                           refresh_token: str = None, client_id: str = None, client_secret: str = None):
     """Create an event in Google Calendar (supports both one-time and recurring events)"""
     try:
@@ -166,17 +184,12 @@ def create_calendar_event(access_token: str, event_name: str, event_description:
 def get_oauth_client_config():
     """Get OAuth client configuration from credentials file"""
     try:
-        with open("/Users/shokhruh/projects/reminder-ai-bot/credentials/client_secret_web_credentials.json", 'r') as f:
-            config = json.load(f)
-            web_config = config.get('web', {})
-            return {
-                'client_id': web_config.get('client_id'),
-                'client_secret': web_config.get('client_secret')
-            }
+        settings = Settings()
+
+        return {
+            'client_id': settings.google_client_id,
+            'client_secret': settings.google_client_secret
+        }
     except Exception as e:
         print(f"Error loading OAuth client config: {e}")
         return None
-
-
-
-
