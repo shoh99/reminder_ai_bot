@@ -16,8 +16,8 @@ from config.settings import Settings
 settings = Settings()
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
-REDIRECT = settings.web_server_host
-REDIRECT_URI = f"{settings.web_server_host}:{settings.web_server_port}"
+REDIRECT_DOMAIN = settings.web_server_host
+REDIRECT_URI = f"https://{REDIRECT_DOMAIN}/oath2callback"  # Use HTTPS
 
 client_config = {
     "web": {
