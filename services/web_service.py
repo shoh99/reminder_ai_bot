@@ -1,4 +1,6 @@
 import os
+import ssl
+
 from aiohttp import web
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -138,6 +140,15 @@ def setup_server():
     web_host = settings.web_server_host
     web_port = int(settings.web_server_port)
 
+    # Create an SSL context
+    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+
+    # Load your certificate and private key
+    ssl_context.load_cert_chain(
+        f'/etc/letsencrypt/live/{web_host}/fullchain.pem',
+        f'/etc/letsencrypt/live/{web_host}/privkey.pem'
+    )
+
     app = web.Application()
     app.add_routes([
         web.get('/', handle),
@@ -147,7 +158,7 @@ def setup_server():
         web.get("/oath2callback", handle_google_callback)
     ])
 
-    print("🚀 Starting OAuth server on http://0.0.0.0:8080")
+    print(f"🚀 Starting OAuth server on {web_host}")
     print("📋 Available endpoints:")
     print("   GET /              - Welcome page")
     print("   GET /health        - Health check")
@@ -155,7 +166,7 @@ def setup_server():
     print("   GET /terms         - Terms of Service")
     print("   GET /oath2callback - Google OAuth callback")
 
-    web.run_app(app, host=web_host, port=web_port)
+    web.run_app(app, port=web_port, ssl_context=ssl_context)
 
 
 def get_welcome_html():
